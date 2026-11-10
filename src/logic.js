@@ -203,6 +203,18 @@ export function parseFindings(raw, allowed) {
   return { findings: [...byNumber.values()].sort((a, b) => a.q - b.q) };
 }
 
+// What the latest cold read says about acting on the page now: one line for an agent or a person.
+export function statusAdvice(run, pageVersion) {
+  if (!run) return 'No cold read yet. Run one before relying on this page.';
+  if (run.pageVersion < pageVersion) {
+    return `The page changed after the last cold read (version ${run.pageVersion}, now ${pageVersion}). Run a new one before acting on it.`;
+  }
+  if (run.status !== 'checked') return 'The last cold read did not finish. Run a new one.';
+  const a = (run.findings ?? []).filter((f) => f.verdict === 'A').length;
+  if (a > 0) return `Do not act on this page yet: ${a} class A finding(s), a newcomer would act wrongly. Ask the page owner to fix them.`;
+  return 'The last cold read of this version found no class A problems.';
+}
+
 // Run IDs sort by time: base-36 milliseconds plus a short random tail against collisions.
 export function newRunId(now = Date.now()) {
   return now.toString(36) + Math.random().toString(36).slice(2, 6).padEnd(4, '0');

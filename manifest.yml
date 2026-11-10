@@ -52,7 +52,31 @@ modules:
         - submit-cold-read-answers
         - get-warm-read-packet
         - submit-cold-read-findings
+        - get-cold-read-status
+  rovo:mcp:
+    - key: cold-read-mcp
+      name: Cold Read
+      tools:
+        - get-cold-read-status
+        - get-cold-read-packet
+        - submit-cold-read-answers
+        - get-warm-read-packet
+        - submit-cold-read-findings
   action:
+    - key: get-cold-read-status
+      name: Get cold read status
+      function: getStatus
+      actionVerb: GET
+      description: >
+        Returns the latest cold read of a Confluence page: its findings, whether it
+        is up to date and one line of advice. Call it before acting on a runbook,
+        handoff or how-to page.
+      inputs:
+        pageId:
+          title: Page ID
+          type: string
+          required: true
+          description: The numeric ID of the Confluence page.
     - key: get-cold-read-packet
       name: Get cold read packet
       function: getPacket
@@ -152,6 +176,8 @@ modules:
       handler: index.submitAnswers
     - key: getWarmPacket
       handler: index.getWarmPacket
+    - key: getStatus
+      handler: index.getStatus
     - key: submitFindings
       handler: index.submitFindings
     - key: panelResolver

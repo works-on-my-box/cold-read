@@ -10,6 +10,7 @@ import {
   parseFindings,
   searchTerms,
   relatedCql,
+  statusAdvice,
   storageToText,
   newRunId,
   isRunId,
@@ -160,4 +161,13 @@ test('run IDs are valid KVS key parts and sort by time', () => {
   assert.ok(a < b);
   assert.ok(isPageId('3964929'));
   assert.ok(!isPageId('39649x'));
+});
+
+test('statusAdvice says whether the page is safe to act on', () => {
+  const checked = (findings, pageVersion = 3) => ({ status: 'checked', pageVersion, findings });
+  assert.match(statusAdvice(undefined, 3), /No cold read yet/);
+  assert.match(statusAdvice(checked([], 2), 3), /changed after the last cold read \(version 2, now 3\)/);
+  assert.match(statusAdvice({ status: 'answered', pageVersion: 3 }, 3), /did not finish/);
+  assert.match(statusAdvice(checked([{ verdict: 'A' }, { verdict: 'C' }]), 3), /Do not act .* 1 class A/);
+  assert.match(statusAdvice(checked([{ verdict: 'B' }, { verdict: 'match' }]), 3), /no class A/);
 });

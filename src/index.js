@@ -4,8 +4,8 @@
 // 3. get-warm-read-packet (only without expected answers): related pages found by search;
 // 4. submit-cold-read-findings: the reader's own verdicts, once.
 import { fetchPage, searchPages } from './confluence';
-import { getQuestions, startRun, getRun, recordAnswers, recordFindings, recordWarm } from './store';
-import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, isPageId, isRunId } from './logic';
+import { getQuestions, startRun, getRun, getLastRun, recordAnswers, recordFindings, recordWarm } from './store';
+import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, statusAdvice, isPageId, isRunId } from './logic';
 
 const RELATED_PAGES = 5;
 const RELATED_CHARS = 4000;
@@ -167,5 +167,34 @@ export async function submitFindings(payload, context) {
     runId,
     findings: { A: count('A'), B: count('B'), C: count('C'), match: count('match') },
     next: 'Show the user the findings, A first, each with its note, and say that Cold Read under the page title shows them.',
+  };
+}
+
+// The state of a page for an agent that is about to act on it (also an MCP tool).
+export async function getStatus(payload) {
+  const pageId = pickPageId(payload);
+  if (!pageId) return { error: 'Give the numeric ID of the Confluence page.' };
+  const page = await fetchPage(pageId); // as the user: fails if they cannot see the page
+  if (page.error) return { error: page.error };
+
+  const run = await getLastRun(pageId);
+  const advice = statusAdvice(run, page.version);
+  if (!run) return { pageId, title: page.title, pageVersion: page.version, lastRun: null, advice };
+  return {
+    pageId,
+    title: page.title,
+    pageVersion: page.version,
+    lastRun: {
+      runId: run.runId,
+      status: run.status,
+      readVersion: run.pageVersion,
+      finishedAt: run.checkedAt || run.answeredAt || run.startedAt,
+      comparedWith: run.questions.some((q) => q.expected) ? 'expected answers' : run.warm ? 'warm read' : null,
+      findings: (run.findings ?? [])
+        .filter((f) => f.verdict !== 'match')
+        .sort((x, y) => x.verdict.localeCompare(y.verdict))
+        .map((f) => ({ verdict: f.verdict, question: run.questions[f.q - 1]?.text, note: f.note })),
+    },
+    advice,
   };
 }
