@@ -215,6 +215,22 @@ export function statusAdvice(run, pageVersion) {
   return 'The last cold read of this version found no class A problems.';
 }
 
+// Title and tooltip of the "Cold Read" item under the page title: the latest result at a glance.
+export function bylineStatus(run, pageVersion) {
+  if (!run || run.status !== 'checked') {
+    return { title: 'Cold Read', tooltip: 'What would a newcomer understand from this page?' };
+  }
+  if (pageVersion && run.pageVersion < pageVersion) {
+    return { title: 'Cold Read · page changed', tooltip: `The last cold read checked version ${run.pageVersion}. Run a new one.` };
+  }
+  const n = (v) => (run.findings ?? []).filter((f) => f.verdict === v).length;
+  const [a, b, c] = [n('A'), n('B'), n('C')];
+  const tooltip = `Last cold read: ${a} A, ${b} B, ${c} C.`;
+  if (a) return { title: `Cold Read · ${a} A`, tooltip: `${tooltip} A newcomer would act wrongly.` };
+  if (b + c) return { title: `Cold Read · ${b + c} to fix`, tooltip };
+  return { title: 'Cold Read · clear', tooltip: 'The last cold read of this version found no problems.' };
+}
+
 // Run IDs sort by time: base-36 milliseconds plus a short random tail against collisions.
 export function newRunId(now = Date.now()) {
   return now.toString(36) + Math.random().toString(36).slice(2, 6).padEnd(4, '0');

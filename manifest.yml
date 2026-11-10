@@ -169,6 +169,8 @@ modules:
         function: panelResolver
       viewportContainer: modal
       viewportSize: large
+      dynamicProperties:
+        function: bylineProps
   function:
     - key: getPacket
       handler: index.getPacket
@@ -178,6 +180,8 @@ modules:
       handler: index.getWarmPacket
     - key: getStatus
       handler: index.getStatus
+    - key: bylineProps
+      handler: index.bylineProps
     - key: submitFindings
       handler: index.submitFindings
     - key: panelResolver

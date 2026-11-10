@@ -11,6 +11,7 @@ import {
   searchTerms,
   relatedCql,
   statusAdvice,
+  bylineStatus,
   storageToText,
   newRunId,
   isRunId,
@@ -170,4 +171,14 @@ test('statusAdvice says whether the page is safe to act on', () => {
   assert.match(statusAdvice({ status: 'answered', pageVersion: 3 }, 3), /did not finish/);
   assert.match(statusAdvice(checked([{ verdict: 'A' }, { verdict: 'C' }]), 3), /Do not act .* 1 class A/);
   assert.match(statusAdvice(checked([{ verdict: 'B' }, { verdict: 'match' }]), 3), /no class A/);
+});
+
+test('bylineStatus shows the latest result under the page title', () => {
+  const checked = (findings, pageVersion = 2) => ({ status: 'checked', pageVersion, findings });
+  assert.equal(bylineStatus(undefined, 2).title, 'Cold Read');
+  assert.equal(bylineStatus({ status: 'reading', pageVersion: 2 }, 2).title, 'Cold Read');
+  assert.equal(bylineStatus(checked([{ verdict: 'A' }], 1), 2).title, 'Cold Read · page changed');
+  assert.equal(bylineStatus(checked([{ verdict: 'A' }, { verdict: 'A' }, { verdict: 'C' }]), 2).title, 'Cold Read · 2 A');
+  assert.equal(bylineStatus(checked([{ verdict: 'B' }, { verdict: 'C' }]), 2).title, 'Cold Read · 2 to fix');
+  assert.equal(bylineStatus(checked([{ verdict: 'match' }]), undefined).title, 'Cold Read · clear');
 });

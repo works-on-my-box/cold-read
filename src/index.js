@@ -5,7 +5,7 @@
 // 4. submit-cold-read-findings: the reader's own verdicts, once.
 import { fetchPage, searchPages } from './confluence';
 import { getQuestions, startRun, getRun, getLastRun, recordAnswers, recordFindings, recordWarm } from './store';
-import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, statusAdvice, isPageId, isRunId } from './logic';
+import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, statusAdvice, bylineStatus, isPageId, isRunId } from './logic';
 
 const RELATED_PAGES = 5;
 const RELATED_CHARS = 4000;
@@ -197,4 +197,14 @@ export async function getStatus(payload) {
     },
     advice,
   };
+}
+
+// Dynamic title of the byline item. Confluence calls it when the page opens and after the panel closes.
+export async function bylineProps(payload) {
+  const pageId = String(payload?.extension?.content?.id ?? '');
+  if (!isPageId(pageId)) return {};
+  const run = await getLastRun(pageId);
+  if (!run) return {};
+  const page = await fetchPage(pageId); // as the user; without the version the title just skips "page changed"
+  return bylineStatus(run, page.error ? undefined : page.version);
 }
