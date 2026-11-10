@@ -165,7 +165,7 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
 // The fields are uncontrolled (defaultValue): UI Kit sends every keystroke over the bridge,
 // and a controlled value would be overwritten by a stale one while the person types.
 // formKey remounts the fields when the questions are replaced (load, reset).
-function Questions({ state, draft, setDraft, formKey, dirty, setDirty, busy, onSave, onReset }) {
+function Questions({ state, draft, setDraft, formKey, dirty, setDirty, busy, onSave, onReset, onSuggest, rovoEnabled }) {
   // Functional updates: several onChange events can arrive before the next render.
   const update = (id, field, value) => {
     setDraft((prev) => prev.map((q) => (q.id === id ? { ...q, [field]: value } : q)));
@@ -217,6 +217,7 @@ function Questions({ state, draft, setDraft, formKey, dirty, setDirty, busy, onS
         <Button appearance="primary" onClick={onSave} isDisabled={!dirty || busy}>Save questions</Button>
         <Button onClick={add} isDisabled={draft.length >= MAX_QUESTIONS || busy}>Add question</Button>
         <Button appearance="subtle" onClick={onReset} isDisabled={busy || (state.isDefault && !dirty)}>Use the handoff set</Button>
+        <Button appearance="subtle" onClick={onSuggest} isDisabled={busy || dirty || rovoEnabled === false}>Suggest questions</Button>
       </ButtonGroup>
     </Stack>
   );
@@ -282,15 +283,18 @@ const App = () => {
       setMessage({ appearance: 'success', text: 'The page uses the default handoff questions again.' });
     });
 
-  const onRun = async () => {
+  // Both buttons hand over to the agent in the Rovo chat. The panel is a modal over the page:
+  // close it so the chat is in view.
+  const openAgent = async (prompt) => {
     try {
-      await rovo.open({ ...AGENT, prompt: `Run a cold read of Confluence page ${state.pageId}.` });
-      // The panel is a modal over the page: close it so the Rovo chat is in view.
+      await rovo.open({ ...AGENT, prompt });
       await view.close();
     } catch (e) {
       setMessage({ appearance: 'error', text: `Could not open the Rovo chat: ${String(e?.message || e)}` });
     }
   };
+  const onRun = () => openAgent(`Run a cold read of Confluence page ${state.pageId}.`);
+  const onSuggest = () => openAgent(`Suggest cold read questions for Confluence page ${state.pageId}.`);
 
   if (!state) return <Spinner label="Loading Cold Read" />;
   if (state.unsupported) {
@@ -331,7 +335,7 @@ const App = () => {
           <LastRun state={state} onRun={onRun} onRefresh={load} runDisabled={dirty || busy || rovoEnabled === false} />
         </TabPanel>
         <TabPanel>
-          <Questions state={state} draft={draft} setDraft={setDraft} formKey={formKey} dirty={dirty} setDirty={setDirty} busy={busy} onSave={onSave} onReset={onReset} />
+          <Questions state={state} draft={draft} setDraft={setDraft} formKey={formKey} dirty={dirty} setDirty={setDirty} busy={busy} onSave={onSave} onReset={onReset} onSuggest={onSuggest} rovoEnabled={rovoEnabled} />
         </TabPanel>
       </Tabs>
     </Stack>

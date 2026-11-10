@@ -3,9 +3,9 @@
 // 2. submit-cold-read-answers: answers are saved once, and only then the expected answers come back;
 // 3. get-warm-read-packet (only without expected answers): related pages found by search;
 // 4. submit-cold-read-findings: the reader's own verdicts, once.
-import { fetchPage, searchPages } from './confluence';
-import { getQuestions, startRun, getRun, getLastRun, recordAnswers, recordFindings, recordWarm } from './store';
-import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, statusAdvice, bylineStatus, isPageId, isRunId } from './logic';
+import { fetchPage, searchPages, canEditPage } from './confluence';
+import { getQuestions, saveQuestions, startRun, getRun, getLastRun, recordAnswers, recordFindings, recordWarm } from './store';
+import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, statusAdvice, bylineStatus, mergeSuggested, isPageId, isRunId } from './logic';
 
 const RELATED_PAGES = 5;
 const RELATED_CHARS = 4000;
@@ -207,4 +207,41 @@ export async function bylineProps(payload) {
   if (!run) return {};
   const page = await fetchPage(pageId); // as the user; without the version the title just skips "page changed"
   return bylineStatus(run, page.error ? undefined : page.version);
+}
+
+// "Suggest questions": the page and its current questions, so the agent can propose new ones.
+// It starts no run and returns no expected answers.
+export async function getPageForQuestions(payload) {
+  const pageId = pickPageId(payload);
+  if (!pageId) return { error: 'Give the numeric ID of the Confluence page.' };
+  const page = await fetchPage(pageId, { withBody: true });
+  if (page.error) return { error: page.error };
+  const { questions, isDefault } = await getQuestions(pageId);
+  return {
+    pageId,
+    title: page.title,
+    pageText: page.text,
+    currentQuestions: isDefault ? [] : questions.map((q) => q.text),
+    next: 'Propose up to 7 short questions a newcomer must answer correctly to act on this page, then call save-suggested-questions once.',
+  };
+}
+
+export async function saveSuggestedQuestions(payload, context) {
+  const pageId = pickPageId(payload);
+  if (!pageId) return { error: 'Give the numeric ID of the Confluence page.' };
+  // KVS is written as the app: only people who can edit the page may change its questions.
+  if (!(await canEditPage(pageId))) return { error: 'Only people who can edit this page can change its questions.' };
+
+  const { questions, isDefault } = await getQuestions(pageId);
+  const merged = mergeSuggested(questions, isDefault, payload?.questions);
+  if (merged.error) return { error: merged.error };
+  await saveQuestions(pageId, merged.questions, context?.principal?.accountId);
+  console.log(`suggested page=${pageId} added=${merged.added} total=${merged.questions.length}`);
+  return {
+    status: 'saved',
+    pageId,
+    added: merged.added,
+    total: merged.questions.length,
+    next: 'Tell the user the questions are saved and that they can add expected answers in Cold Read under the page title, then run a cold read.',
+  };
 }

@@ -12,6 +12,7 @@ import {
   relatedCql,
   statusAdvice,
   bylineStatus,
+  mergeSuggested,
   storageToText,
   newRunId,
   isRunId,
@@ -181,4 +182,19 @@ test('bylineStatus shows the latest result under the page title', () => {
   assert.equal(bylineStatus(checked([{ verdict: 'A' }, { verdict: 'A' }, { verdict: 'C' }]), 2).title, 'Cold Read · 2 A');
   assert.equal(bylineStatus(checked([{ verdict: 'B' }, { verdict: 'C' }]), 2).title, 'Cold Read · 2 to fix');
   assert.equal(bylineStatus(checked([{ verdict: 'match' }]), undefined).title, 'Cold Read · clear');
+});
+
+test('mergeSuggested replaces the default set but keeps the owner\'s questions', () => {
+  const now = Date.UTC(2026, 10, 10);
+  const fromDefault = mergeSuggested(HANDOFF_QUESTIONS, true, '["Who is on call?", "Where is the rollback script?"]', now);
+  assert.deepEqual(fromDefault.questions.map((q) => q.text), ['Who is on call?', 'Where is the rollback script?']);
+  assert.equal(validateQuestions(fromDefault.questions).error, undefined);
+
+  const own = [{ id: 'q1', text: 'Who is on call?', expected: 'Mia' }];
+  const merged = mergeSuggested(own, false, '1. Who is on call?\n2. Where is the rollback script?', now);
+  assert.deepEqual(merged.questions.map((q) => [q.text, q.expected]), [['Who is on call?', 'Mia'], ['Where is the rollback script?', '']]);
+  assert.equal(merged.added, 1);
+
+  const full = Array.from({ length: 10 }, (_, i) => ({ id: `q${i}`, text: `Q${i}?`, expected: '' }));
+  assert.ok(mergeSuggested(full, false, '["New?"]', now).error);
 });

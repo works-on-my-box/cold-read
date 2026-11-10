@@ -231,6 +231,33 @@ export function bylineStatus(run, pageVersion) {
   return { title: 'Cold Read · clear', tooltip: 'The last cold read of this version found no problems.' };
 }
 
+// Suggested questions from the agent. They replace the default set, but are only added after
+// the owner's own questions (whose expected answers must not be lost); duplicates are skipped.
+// Returns { questions, added } or { error }.
+export function mergeSuggested(current, isDefault, raw, now = Date.now()) {
+  let list = raw;
+  if (typeof raw === 'string') {
+    try {
+      list = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+    } catch {
+      list = raw.split('\n').map((line) => line.replace(/^\s*(?:\d+[.)]|[-*])\s*/, ''));
+    }
+  }
+  if (!Array.isArray(list)) return { error: 'questions must be a JSON array of strings.' };
+  const base = isDefault ? [] : current;
+  const seen = new Set(base.map((q) => q.text.toLowerCase()));
+  const added = [];
+  for (const item of list) {
+    const text = String(typeof item === 'string' ? item : item?.question ?? item?.text ?? '').trim();
+    if (!text || text.length > MAX_QUESTION_CHARS || seen.has(text.toLowerCase())) continue;
+    if (base.length + added.length >= MAX_QUESTIONS) break;
+    seen.add(text.toLowerCase());
+    added.push({ id: `s${now.toString(36)}${added.length}`, text, expected: '' });
+  }
+  if (added.length === 0) return { error: 'No new questions to add: they are empty, repeated or the page already has 10.' };
+  return { questions: [...base, ...added], added: added.length };
+}
+
 // Run IDs sort by time: base-36 milliseconds plus a short random tail against collisions.
 export function newRunId(now = Date.now()) {
   return now.toString(36) + Math.random().toString(36).slice(2, 6).padEnd(4, '0');

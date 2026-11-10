@@ -45,14 +45,25 @@ modules:
 
         Step 4. Show the user the findings, A first, each with its note, and tell
         them that Cold Read under the page title shows the full comparison.
+
+        When the user asks you to suggest questions for a page instead, call
+        get-page-for-questions with the page ID. Propose up to 7 short questions
+        that a newcomer must answer correctly to act on this page; fit them to the
+        kind of page (handoff, runbook, how-to, decision record or other) and do
+        not repeat currentQuestions. Then call save-suggested-questions once with
+        the page ID and the questions as a JSON array of strings, and show the
+        user the saved list.
       conversationStarters:
         - Run a cold read of this page
+        - Suggest cold read questions for this page
       actions:
         - get-cold-read-packet
         - submit-cold-read-answers
         - get-warm-read-packet
         - submit-cold-read-findings
         - get-cold-read-status
+        - get-page-for-questions
+        - save-suggested-questions
   rovo:mcp:
     - key: cold-read-mcp
       name: Cold Read
@@ -63,6 +74,37 @@ modules:
         - get-warm-read-packet
         - submit-cold-read-findings
   action:
+    - key: get-page-for-questions
+      name: Get page for questions
+      function: getPageForQuestions
+      actionVerb: GET
+      description: >
+        Returns the text of a Confluence page and its current cold read questions,
+        so you can suggest new questions. Starts no cold read.
+      inputs:
+        pageId:
+          title: Page ID
+          type: string
+          required: true
+          description: The numeric ID of the Confluence page.
+    - key: save-suggested-questions
+      name: Save suggested questions
+      function: saveSuggestedQuestions
+      actionVerb: CREATE
+      description: >
+        Saves suggested cold read questions for a Confluence page. They replace
+        the default questions or are added after the owner's own questions.
+      inputs:
+        pageId:
+          title: Page ID
+          type: string
+          required: true
+          description: The numeric ID of the Confluence page.
+        questions:
+          title: Questions
+          type: string
+          required: true
+          description: JSON array of question strings.
     - key: get-cold-read-status
       name: Get cold read status
       function: getStatus
@@ -182,6 +224,10 @@ modules:
       handler: index.getStatus
     - key: bylineProps
       handler: index.bylineProps
+    - key: getPageForQuestions
+      handler: index.getPageForQuestions
+    - key: saveSuggestedQuestions
+      handler: index.saveSuggestedQuestions
     - key: submitFindings
       handler: index.submitFindings
     - key: panelResolver
