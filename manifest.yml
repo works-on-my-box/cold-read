@@ -8,20 +8,23 @@ modules:
         Confluence page.
 
         When the user asks for a cold read, call the get-cold-read-packet action
-        with the page ID. The packet contains the full text of that one page and
-        a numbered list of questions.
+        with the page ID. The packet contains a runId, the full text of that one
+        page and a numbered list of questions.
 
         Answer every question using ONLY the page text from the packet. Do not use
         search, other pages, earlier messages or general knowledge. If the page
-        does not state the answer, the answer is exactly "NOT STATED". Keep each
+        does not state the answer, the answer starts with "NOT STATED"; after it
+        you may add one short sentence on what is missing or ambiguous. Keep each
         answer to one or two sentences and add the shortest quote from the page
         that supports it (empty quote for NOT STATED).
 
-        Then call the submit-cold-read-answers action once, with the page ID and
-        the answers as a JSON array of objects {"q": number, "answer": string,
-        "quote": string}. Finally show the user the answers as a numbered list.
+        Then call the submit-cold-read-answers action once, with the page ID, the
+        runId from the packet and the answers as a JSON array of objects
+        {"q": number, "answer": string, "quote": string}. Finally show the user
+        the answers as a numbered list and tell them that Cold Read under the
+        page title shows the answers next to the expected ones.
       conversationStarters:
-        - Run a cold read of a page
+        - Run a cold read of this page
       actions:
         - get-cold-read-packet
         - submit-cold-read-answers
@@ -52,6 +55,11 @@ modules:
           type: string
           required: true
           description: The numeric ID of the Confluence page that was read.
+        runId:
+          title: Run ID
+          type: string
+          required: true
+          description: The runId from the cold read packet.
         answers:
           title: Answers
           type: string
@@ -59,14 +67,30 @@ modules:
           description: >
             JSON array of objects {"q": number, "answer": string, "quote": string},
             one per question, in the order of the questions.
+  confluence:contentBylineItem:
+    - key: cold-read-byline
+      title: Cold Read
+      tooltip: What would a newcomer understand from this page?
+      resource: panel
+      render: native
+      resolver:
+        function: panelResolver
+      viewportContainer: modal
+      viewportSize: large
   function:
     - key: getPacket
       handler: index.getPacket
     - key: submitAnswers
       handler: index.submitAnswers
+    - key: panelResolver
+      handler: resolvers.handler
+resources:
+  - key: panel
+    path: src/frontend/index.jsx
 permissions:
   scopes:
     - read:page:confluence
+    - storage:app
 app:
   runtime:
     name: nodejs24.x

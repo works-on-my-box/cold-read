@@ -1,0 +1,299 @@
+// The Cold Read panel. It opens from "Cold Read" under the page title.
+// Tab "Last run": the reader's answers next to the expected answers. Tab "Questions": edit them.
+import React, { useEffect, useState } from 'react';
+import ForgeReconciler, {
+  Button,
+  ButtonGroup,
+  DynamicTable,
+  Em,
+  EmptyState,
+  Inline,
+  Label,
+  Lozenge,
+  SectionMessage,
+  Spinner,
+  Stack,
+  Strong,
+  Tab,
+  TabList,
+  TabPanel,
+  Tabs,
+  Text,
+  TextArea,
+  Textfield,
+} from '@forge/react';
+import { invoke, rovo, view } from '@forge/bridge';
+
+const AGENT = { type: 'forge', agentKey: 'cold-reader', agentName: 'Cold Reader' };
+const MAX_QUESTIONS = 10; // the same limit as src/logic.js
+
+const newQuestionId = () => `q${Date.now().toString(36)}`;
+const formatTime = (iso) => (iso ? new Date(iso).toLocaleString() : '');
+
+// One cell of the reader's answer: a quote proves the answer came from the page.
+function AnswerCell({ run, answer }) {
+  if (!answer) {
+    return run.status === 'reading' ? <Lozenge appearance="inprogress">Reading</Lozenge> : <Lozenge appearance="removed">No answer</Lozenge>;
+  }
+  if (answer.notStated) {
+    const extra = answer.answer.replace(/^NOT STATED[.:\s-]*/i, '');
+    return (
+      <Stack space="space.050">
+        <Lozenge appearance="removed">Not on the page</Lozenge>
+        {extra ? <Text>{extra}</Text> : null}
+      </Stack>
+    );
+  }
+  return (
+    <Stack space="space.050">
+      <Text>{answer.answer}</Text>
+      {answer.quote ? <Text><Em>“{answer.quote}”</Em></Text> : null}
+    </Stack>
+  );
+}
+
+function LastRun({ state, onRun, onRefresh, runDisabled }) {
+  const run = state.lastRun;
+  const buttons = (
+    <ButtonGroup label="Run">
+      <Button appearance="primary" onClick={onRun} isDisabled={runDisabled}>Run cold read</Button>
+      <Button onClick={onRefresh}>Refresh</Button>
+    </ButtonGroup>
+  );
+  if (!run) {
+    return (
+      <EmptyState
+        header="No cold read yet"
+        description="Check the questions in the Questions tab, then run a cold read. The reader opens in the Rovo chat."
+        primaryAction={buttons}
+      />
+    );
+  }
+
+  const expectedById = Object.fromEntries(state.questions.map((q) => [q.id, q.expected]));
+  const answers = run.answers ?? [];
+  const notStated = answers.filter((a) => a.notStated).length;
+  const fromPage = answers.length - notStated;
+  const pageChanged = state.pageVersion && run.pageVersion && state.pageVersion > run.pageVersion;
+
+  const head = {
+    cells: [
+      { key: 'n', content: '#' },
+      { key: 'q', content: 'Question' },
+      { key: 'a', content: 'Cold reader’s answer' },
+      { key: 'e', content: 'Expected answer' },
+    ],
+  };
+  const rows = run.questions.map((q, i) => ({
+    key: q.id,
+    cells: [
+      { key: 'n', content: String(i + 1) },
+      { key: 'q', content: q.text },
+      { key: 'a', content: <AnswerCell run={run} answer={answers.find((a) => a.questionId === q.id)} /> },
+      { key: 'e', content: expectedById[q.id] ? expectedById[q.id] : <Em>Not set</Em> },
+    ],
+  }));
+
+  return (
+    <Stack space="space.200">
+      <Inline space="space.100" alignBlock="center" shouldWrap>
+        {run.status === 'reading' ? <Lozenge appearance="inprogress">Waiting for answers</Lozenge> : <Lozenge appearance="success">Answered</Lozenge>}
+        <Text>Read version {run.pageVersion} · {formatTime(run.answeredAt || run.startedAt)}</Text>
+        {pageChanged ? <Lozenge appearance="moved">Page changed since this run</Lozenge> : null}
+      </Inline>
+      {run.status === 'reading' ? (
+        <SectionMessage appearance="information">
+          <Text>The reader has the page and is answering. If the Rovo chat asks to confirm “Submit cold read answers”, confirm it, then press Refresh.</Text>
+        </SectionMessage>
+      ) : (
+        <Text>
+          <Strong>{fromPage}</Strong> of {run.questions.length} answered from the page · <Strong>{notStated}</Strong> not on the page
+        </Text>
+      )}
+      <DynamicTable head={head} rows={rows} />
+      {buttons}
+    </Stack>
+  );
+}
+
+// The fields are uncontrolled (defaultValue): UI Kit sends every keystroke over the bridge,
+// and a controlled value would be overwritten by a stale one while the person types.
+// formKey remounts the fields when the questions are replaced (load, reset).
+function Questions({ state, draft, setDraft, formKey, dirty, setDirty, busy, onSave, onReset }) {
+  // Functional updates: several onChange events can arrive before the next render.
+  const update = (id, field, value) => {
+    setDraft((prev) => prev.map((q) => (q.id === id ? { ...q, [field]: value } : q)));
+    setDirty(true);
+  };
+  const remove = (id) => {
+    setDraft((prev) => prev.filter((q) => q.id !== id));
+    setDirty(true);
+  };
+  const add = () => {
+    setDraft((prev) => [...prev, { id: newQuestionId(), text: '', expected: '' }]);
+    setDirty(true);
+  };
+
+  if (!state.canEdit) {
+    return (
+      <Stack space="space.150">
+        <Text>Only people who can edit this page can change its questions.</Text>
+        {state.questions.map((q, i) => (
+          <Stack key={q.id} space="space.050">
+            <Text><Strong>{i + 1}. {q.text}</Strong></Text>
+            <Text>{q.expected ? q.expected : <Em>No expected answer</Em>}</Text>
+          </Stack>
+        ))}
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack space="space.200">
+      {state.isDefault ? (
+        <SectionMessage appearance="information">
+          <Text>This page uses the default handoff questions. Change them and save to make them this page’s own.</Text>
+        </SectionMessage>
+      ) : null}
+      <Text>Expected answers are optional. The reader never sees them: without them, Cold Read shows what the page leaves unsaid.</Text>
+      {draft.map((q, i) => (
+        <Stack key={`${formKey}-${q.id}`} space="space.050">
+          <Label labelFor={`q-${q.id}`}>Question {i + 1}</Label>
+          <Textfield id={`q-${q.id}`} defaultValue={q.text} maxLength={300} onChange={(e) => update(q.id, 'text', e.target.value)} />
+          <Label labelFor={`e-${q.id}`}>Expected answer to question {i + 1}</Label>
+          <TextArea id={`e-${q.id}`} defaultValue={q.expected} maxLength={1000} minimumRows={2} placeholder="What a newcomer should understand from the page" onChange={(e) => update(q.id, 'expected', e.target.value)} />
+          <Inline>
+            <Button appearance="subtle" onClick={() => remove(q.id)} isDisabled={draft.length <= 1}>Remove question {i + 1}</Button>
+          </Inline>
+        </Stack>
+      ))}
+      <ButtonGroup label="Questions">
+        <Button appearance="primary" onClick={onSave} isDisabled={!dirty || busy}>Save questions</Button>
+        <Button onClick={add} isDisabled={draft.length >= MAX_QUESTIONS || busy}>Add question</Button>
+        <Button appearance="subtle" onClick={onReset} isDisabled={busy || (state.isDefault && !dirty)}>Use the handoff set</Button>
+      </ButtonGroup>
+    </Stack>
+  );
+}
+
+const App = () => {
+  const [state, setState] = useState(null);
+  const [draft, setDraft] = useState([]);
+  const [formKey, setFormKey] = useState(0);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [rovoEnabled, setRovoEnabled] = useState(null); // null = not known yet
+
+  const load = async () => {
+    try {
+      const next = await invoke('getState');
+      setState(next);
+      // Refresh keeps unsaved edits; only a clean form takes the stored questions.
+      if (next?.questions && !dirty) {
+        setDraft(next.questions);
+        setFormKey((k) => k + 1);
+        setDirty(false);
+      }
+    } catch (e) {
+      setState({ error: String(e?.message || e) });
+    }
+  };
+
+  useEffect(() => {
+    load();
+    rovo.isEnabled().then(setRovoEnabled).catch(() => setRovoEnabled(null));
+  }, []);
+
+  const call = async (name, payload, done) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await invoke(name, payload);
+      if (res?.error) setMessage({ appearance: 'error', text: res.error });
+      else done(res);
+    } catch (e) {
+      setMessage({ appearance: 'error', text: String(e?.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSave = () =>
+    call('saveQuestions', { questions: draft }, (res) => {
+      setState((prev) => ({ ...prev, questions: res.questions, isDefault: false }));
+      setDraft(res.questions);
+      setDirty(false);
+      setMessage({ appearance: 'success', text: 'Questions saved. The next cold read uses them.' });
+    });
+
+  const onReset = () =>
+    call('resetQuestions', undefined, (res) => {
+      setState((prev) => ({ ...prev, questions: res.questions, isDefault: true }));
+      setDraft(res.questions);
+      setFormKey((k) => k + 1);
+      setDirty(false);
+      setMessage({ appearance: 'success', text: 'The page uses the default handoff questions again.' });
+    });
+
+  const onRun = async () => {
+    try {
+      await rovo.open({ ...AGENT, prompt: `Run a cold read of Confluence page ${state.pageId}.` });
+      // The panel is a modal over the page: close it so the Rovo chat is in view.
+      await view.close();
+    } catch (e) {
+      setMessage({ appearance: 'error', text: `Could not open the Rovo chat: ${String(e?.message || e)}` });
+    }
+  };
+
+  if (!state) return <Spinner label="Loading Cold Read" />;
+  if (state.unsupported) {
+    return (
+      <SectionMessage appearance="information">
+        <Text>Cold Read checks pages. Blog posts are not supported yet.</Text>
+      </SectionMessage>
+    );
+  }
+  if (state.error) {
+    return (
+      <SectionMessage appearance="error" title="Cold Read could not load">
+        <Text>{state.error}</Text>
+      </SectionMessage>
+    );
+  }
+
+  return (
+    <Stack space="space.200">
+      <Text>A fresh Rovo agent reads only this page, with no search and no other pages, and answers the questions. Where its answers miss what you expect, a newcomer will miss it too.</Text>
+      {rovoEnabled === false ? (
+        <SectionMessage appearance="warning" title="Rovo is off on this site">
+          <Text>The cold reader is a Rovo agent, so it cannot run here. Questions and expected answers still save. Ask a site admin to turn on Rovo.</Text>
+        </SectionMessage>
+      ) : null}
+      {message ? (
+        <SectionMessage appearance={message.appearance}>
+          <Text>{message.text}</Text>
+        </SectionMessage>
+      ) : null}
+      {dirty ? <Text><Em>Save the questions first: the reader uses the saved ones.</Em></Text> : null}
+      <Tabs id="cold-read-tabs">
+        <TabList>
+          <Tab>Last run</Tab>
+          <Tab>Questions ({draft.length})</Tab>
+        </TabList>
+        <TabPanel>
+          <LastRun state={state} onRun={onRun} onRefresh={load} runDisabled={dirty || busy || rovoEnabled === false} />
+        </TabPanel>
+        <TabPanel>
+          <Questions state={state} draft={draft} setDraft={setDraft} formKey={formKey} dirty={dirty} setDirty={setDirty} busy={busy} onSave={onSave} onReset={onReset} />
+        </TabPanel>
+      </Tabs>
+    </Stack>
+  );
+};
+
+ForgeReconciler.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
