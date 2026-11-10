@@ -13,6 +13,7 @@ import {
   statusAdvice,
   bylineStatus,
   mergeSuggested,
+  pageState,
   storageToText,
   newRunId,
   isRunId,
@@ -197,4 +198,12 @@ test('mergeSuggested replaces the default set but keeps the owner\'s questions',
 
   const full = Array.from({ length: 10 }, (_, i) => ({ id: `q${i}`, text: `Q${i}?`, expected: '' }));
   assert.ok(mergeSuggested(full, false, '["New?"]', now).error);
+});
+
+test('pageState labels a page for the space summary', () => {
+  assert.equal(pageState(undefined, 1).key, 'none');
+  assert.equal(pageState({ status: 'answered', pageVersion: 1 }, 1).key, 'unfinished');
+  assert.equal(pageState({ status: 'checked', pageVersion: 1, findings: [] }, 2).key, 'changed');
+  assert.deepEqual(pageState({ status: 'checked', pageVersion: 2, findings: [{ verdict: 'A' }, { verdict: 'C' }] }, 2), { key: 'A', label: '1 A', a: 1, b: 0, c: 1 });
+  assert.equal(pageState({ status: 'checked', pageVersion: 2, findings: [{ verdict: 'match' }] }, 2).label, 'Clear');
 });

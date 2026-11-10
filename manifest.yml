@@ -213,6 +213,14 @@ modules:
       viewportSize: large
       dynamicProperties:
         function: bylineProps
+  confluence:spacePage:
+    - key: cold-read-space
+      title: Cold Read
+      route: cold-read
+      resource: space
+      render: native
+      resolver:
+        function: panelResolver
   function:
     - key: getPacket
       handler: index.getPacket
@@ -235,6 +243,8 @@ modules:
 resources:
   - key: panel
     path: src/frontend/index.jsx
+  - key: space
+    path: src/frontend/space.jsx
 permissions:
   scopes:
     - read:page:confluence

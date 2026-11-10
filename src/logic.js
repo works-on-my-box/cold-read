@@ -215,21 +215,36 @@ export function statusAdvice(run, pageVersion) {
   return 'The last cold read of this version found no class A problems.';
 }
 
+// State of a page by its latest cold read. key: none | unfinished | changed | A | fix | clear.
+export function pageState(run, pageVersion) {
+  if (!run) return { key: 'none', label: 'Not run' };
+  if (run.status !== 'checked') return { key: 'unfinished', label: 'Not finished' };
+  if (pageVersion && run.pageVersion < pageVersion) return { key: 'changed', label: 'Page changed' };
+  const n = (v) => (run.findings ?? []).filter((f) => f.verdict === v).length;
+  const counts = { a: n('A'), b: n('B'), c: n('C') };
+  if (counts.a) return { key: 'A', label: `${counts.a} A`, ...counts };
+  if (counts.b + counts.c) return { key: 'fix', label: `${counts.b + counts.c} to fix`, ...counts };
+  return { key: 'clear', label: 'Clear', ...counts };
+}
+
 // Title and tooltip of the "Cold Read" item under the page title: the latest result at a glance.
 export function bylineStatus(run, pageVersion) {
-  if (!run || run.status !== 'checked') {
+  const state = pageState(run, pageVersion);
+  if (state.key === 'none' || state.key === 'unfinished') {
     return { title: 'Cold Read', tooltip: 'What would a newcomer understand from this page?' };
   }
-  if (pageVersion && run.pageVersion < pageVersion) {
+  if (state.key === 'changed') {
     return { title: 'Cold Read · page changed', tooltip: `The last cold read checked version ${run.pageVersion}. Run a new one.` };
   }
-  const n = (v) => (run.findings ?? []).filter((f) => f.verdict === v).length;
-  const [a, b, c] = [n('A'), n('B'), n('C')];
-  const tooltip = `Last cold read: ${a} A, ${b} B, ${c} C.`;
-  if (a) return { title: `Cold Read · ${a} A`, tooltip: `${tooltip} A newcomer would act wrongly.` };
-  if (b + c) return { title: `Cold Read · ${b + c} to fix`, tooltip };
-  return { title: 'Cold Read · clear', tooltip: 'The last cold read of this version found no problems.' };
+  if (state.key === 'clear') {
+    return { title: 'Cold Read · clear', tooltip: 'The last cold read of this version found no problems.' };
+  }
+  const tooltip = `Last cold read: ${state.a} A, ${state.b} B, ${state.c} C.`;
+  return { title: `Cold Read · ${state.label}`, tooltip: state.key === 'A' ? `${tooltip} A newcomer would act wrongly.` : tooltip };
 }
+
+// Order of the space summary: pages a newcomer would act wrongly on first, clear pages last.
+export const STATE_ORDER = ['A', 'changed', 'fix', 'unfinished', 'none', 'clear'];
 
 // Suggested questions from the agent. They replace the default set, but are only added after
 // the owner's own questions (whose expected answers must not be lost); duplicates are skipped.

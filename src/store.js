@@ -6,7 +6,7 @@
 //   questions:<pageId>        questions of a page and the owner's expected answers
 //   run:<pageId>:<runId>      one cold read: the questions given to the reader, its answers
 //   lastrun:<pageId>          runId of the latest cold read of the page
-import { kvs } from '@forge/kvs';
+import { kvs, WhereConditions } from '@forge/kvs';
 import { HANDOFF_QUESTIONS, newRunId } from './logic';
 
 const questionsKey = (pageId) => `questions:${pageId}`;
@@ -100,4 +100,21 @@ export async function recordWarm(run, { terms, sources }) {
   const warm = { ...run, warm: { at: new Date().toISOString(), terms, sources } };
   await kvs.set(runKey(run.pageId, run.runId), warm);
   return warm;
+}
+
+// IDs of pages that have saved questions or a cold read, across the installation (KVS has no
+// per-space index). The query is eventually consistent, which is fine for a summary.
+export async function pagesWithColdRead(max = 100) {
+  const ids = new Set();
+  for (const prefix of ['lastrun:', 'questions:']) {
+    let cursor;
+    do {
+      let query = kvs.query().where('key', WhereConditions.beginsWith(prefix)).limit(50);
+      if (cursor) query = query.cursor(cursor);
+      const { results, nextCursor } = await query.getMany();
+      results.forEach((r) => ids.add(r.key.slice(prefix.length)));
+      cursor = nextCursor;
+    } while (cursor && ids.size < max);
+  }
+  return [...ids].slice(0, max);
 }
