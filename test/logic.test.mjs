@@ -5,7 +5,9 @@ import {
   MAX_QUESTIONS,
   validateQuestions,
   parseAnswers,
-  submitRefusal,
+  runRefusal,
+  expectedOf,
+  parseFindings,
   storageToText,
   newRunId,
   isRunId,
@@ -78,12 +80,38 @@ test('parseAnswers falls back to "Q1: answer" lines', () => {
   assert.deepEqual(missing, [2]);
 });
 
-test('submitRefusal: one run takes answers once, from the person who started it', () => {
+test('runRefusal holds the order: answers once, then findings once, same person', () => {
   const ids = { pageId: '1', runId: 'abc12345', accountId: 'u1' };
-  assert.match(submitRefusal(undefined, ids), /no cold read/);
-  assert.match(submitRefusal({ status: 'answered', startedBy: 'u1' }, ids), /already saved/);
-  assert.match(submitRefusal({ status: 'reading', startedBy: 'u2' }, ids), /another person/);
-  assert.equal(submitRefusal({ status: 'reading', startedBy: 'u1' }, ids), null);
+  assert.match(runRefusal(undefined, 'answers', ids), /no cold read/);
+  assert.equal(runRefusal({ status: 'reading', startedBy: 'u1' }, 'answers', ids), null);
+  assert.match(runRefusal({ status: 'answered', startedBy: 'u1' }, 'answers', ids), /already saved/);
+  assert.match(runRefusal({ status: 'reading', startedBy: 'u2' }, 'answers', ids), /another person/);
+  assert.match(runRefusal({ status: 'reading', startedBy: 'u1' }, 'findings', ids), /answers .* first/);
+  assert.equal(runRefusal({ status: 'answered', startedBy: 'u1' }, 'findings', ids), null);
+  assert.match(runRefusal({ status: 'checked', startedBy: 'u1' }, 'findings', ids), /Findings .* already saved/);
+});
+
+test('expectedOf lists only questions with an expected answer, by run number', () => {
+  const run = { questions: [{ id: 'h1', text: 'Where?', expected: 'Sent' }, { id: 'h2', text: 'Next?', expected: '' }, { id: 'q9', text: 'Amount?', expected: '$48,000' }] };
+  assert.deepEqual(expectedOf(run), [
+    { q: 1, question: 'Where?', expected: 'Sent' },
+    { q: 3, question: 'Amount?', expected: '$48,000' },
+  ]);
+});
+
+test('parseFindings keeps verdicts for allowed questions only', () => {
+  const raw = JSON.stringify([
+    { q: 1, verdict: 'A', note: 'Say the quote was sent on Nov 7.' },
+    { q: 2, verdict: 'match', note: '' },
+    { q: 3, verdict: 'c - not covered', note: 'Name who is waiting.' },
+    { q: 4, verdict: 'B', note: 'not allowed' },
+    { q: 1, verdict: 'B', note: 'duplicate' },
+    { q: 2, verdict: 'X', note: 'bad verdict' },
+  ]);
+  const { findings } = parseFindings(raw, new Set([1, 2, 3]));
+  assert.deepEqual(findings.map((f) => [f.q, f.verdict]), [[1, 'A'], [2, 'match'], [3, 'C']]);
+  assert.ok(parseFindings('nonsense', new Set([1])).error);
+  assert.ok(parseFindings('[{"q": 5, "verdict": "A"}]', new Set([1])).error);
 });
 
 test('parseAnswers reports garbage as an error', () => {

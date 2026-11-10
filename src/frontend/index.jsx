@@ -36,7 +36,7 @@ function AnswerCell({ run, answer }) {
     return run.status === 'reading' ? <Lozenge appearance="inprogress">Reading</Lozenge> : <Lozenge appearance="removed">No answer</Lozenge>;
   }
   if (answer.notStated) {
-    const extra = answer.answer.replace(/^NOT STATED[.:\s-]*/i, '');
+    const extra = answer.answer.replace(/^NOT STATED[\s.:;,-]*/i, '');
     return (
       <Stack space="space.050">
         <Lozenge appearance="removed">Not on the page</Lozenge>
@@ -50,6 +50,31 @@ function AnswerCell({ run, answer }) {
       {answer.quote ? <Text><Em>“{answer.quote}”</Em></Text> : null}
     </Stack>
   );
+}
+
+// Finding classes, worst first. A: the newcomer would act wrongly. B: wrong or stale. C: not covered.
+const VERDICTS = {
+  A: { appearance: 'removed', label: 'A · would act wrongly' },
+  B: { appearance: 'moved', label: 'B · wrong or stale' },
+  C: { appearance: 'new', label: 'C · not covered' },
+  match: { appearance: 'success', label: 'Match' },
+};
+
+function FindingCell({ finding }) {
+  if (!finding) return <Text> </Text>;
+  const v = VERDICTS[finding.verdict];
+  return (
+    <Stack space="space.050">
+      <Lozenge appearance={v.appearance}>{v.label}</Lozenge>
+      {finding.note ? <Text>{finding.note}</Text> : null}
+    </Stack>
+  );
+}
+
+function RunStatus({ run, hasExpected }) {
+  if (run.status === 'reading') return <Lozenge appearance="inprogress">Waiting for answers</Lozenge>;
+  if (run.status === 'answered' && hasExpected) return <Lozenge appearance="inprogress">Waiting for findings</Lozenge>;
+  return <Lozenge appearance="success">{run.status === 'checked' ? 'Checked' : 'Answered'}</Lozenge>;
 }
 
 function LastRun({ state, onRun, onRefresh, runDisabled }) {
@@ -70,11 +95,16 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
     );
   }
 
-  const expectedById = Object.fromEntries(state.questions.map((q) => [q.id, q.expected]));
+  // Runs keep the expected answers they were checked against; older runs fall back to the page's.
+  const current = Object.fromEntries(state.questions.map((q) => [q.id, q.expected]));
+  const expectedOf = (q) => ('expected' in q ? q.expected : current[q.id]);
+  const hasExpected = run.questions.some((q) => expectedOf(q));
   const answers = run.answers ?? [];
+  const findings = run.findings ?? [];
   const notStated = answers.filter((a) => a.notStated).length;
   const fromPage = answers.length - notStated;
   const pageChanged = state.pageVersion && run.pageVersion && state.pageVersion > run.pageVersion;
+  const count = (v) => findings.filter((f) => f.verdict === v).length;
 
   const head = {
     cells: [
@@ -82,6 +112,7 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
       { key: 'q', content: 'Question' },
       { key: 'a', content: 'Cold reader’s answer' },
       { key: 'e', content: 'Expected answer' },
+      ...(findings.length ? [{ key: 'f', content: 'Finding' }] : []),
     ],
   };
   const rows = run.questions.map((q, i) => ({
@@ -90,26 +121,34 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
       { key: 'n', content: String(i + 1) },
       { key: 'q', content: q.text },
       { key: 'a', content: <AnswerCell run={run} answer={answers.find((a) => a.questionId === q.id)} /> },
-      { key: 'e', content: expectedById[q.id] ? expectedById[q.id] : <Em>Not set</Em> },
+      { key: 'e', content: expectedOf(q) ? expectedOf(q) : <Em>Not set</Em> },
+      ...(findings.length ? [{ key: 'f', content: <FindingCell finding={findings.find((f) => f.questionId === q.id)} /> }] : []),
     ],
   }));
 
   return (
     <Stack space="space.200">
       <Inline space="space.100" alignBlock="center" shouldWrap>
-        {run.status === 'reading' ? <Lozenge appearance="inprogress">Waiting for answers</Lozenge> : <Lozenge appearance="success">Answered</Lozenge>}
-        <Text>Read version {run.pageVersion} · {formatTime(run.answeredAt || run.startedAt)}</Text>
+        <RunStatus run={run} hasExpected={hasExpected} />
+        <Text>Read version {run.pageVersion} · {formatTime(run.checkedAt || run.answeredAt || run.startedAt)}</Text>
         {pageChanged ? <Lozenge appearance="moved">Page changed since this run</Lozenge> : null}
       </Inline>
       {run.status === 'reading' ? (
         <SectionMessage appearance="information">
           <Text>The reader has the page and is answering. If the Rovo chat asks to confirm “Submit cold read answers”, confirm it, then press Refresh.</Text>
         </SectionMessage>
-      ) : (
+      ) : null}
+      {run.status === 'answered' && hasExpected ? (
+        <SectionMessage appearance="information">
+          <Text>The answers are saved and the reader is comparing them with the expected answers. If the Rovo chat asks to confirm “Submit cold read findings”, confirm it, then press Refresh.</Text>
+        </SectionMessage>
+      ) : null}
+      {run.status !== 'reading' ? (
         <Text>
           <Strong>{fromPage}</Strong> of {run.questions.length} answered from the page · <Strong>{notStated}</Strong> not on the page
+          {findings.length ? ` · findings: ${count('A')} A, ${count('B')} B, ${count('C')} C, ${count('match')} match` : ''}
         </Text>
-      )}
+      ) : null}
       <DynamicTable head={head} rows={rows} />
       {buttons}
     </Stack>

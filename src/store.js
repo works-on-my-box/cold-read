@@ -67,14 +67,30 @@ export async function getLastRun(pageId) {
 }
 
 // answers: [{ q, answer, quote, notStated }] where q is the 1-based number in run.questions.
-export async function recordAnswers(run, { answers, missing }) {
+// The expected answers of the page are copied into the run now, after the answers are fixed:
+// later edits of the questions do not change what this run was checked against.
+export async function recordAnswers(run, { answers, missing }, pageQuestions) {
+  const expectedById = new Map(pageQuestions.map((q) => [q.id, q.expected]));
   const answered = {
     ...run,
     status: 'answered',
     answeredAt: new Date().toISOString(),
+    questions: run.questions.map((q) => ({ ...q, expected: expectedById.get(q.id) || '' })),
     answers: answers.map((a) => ({ ...a, questionId: run.questions[a.q - 1].id })),
     missing,
   };
   await kvs.set(runKey(run.pageId, run.runId), answered);
   return answered;
+}
+
+// findings: [{ q, verdict: 'match' | 'A' | 'B' | 'C', note }].
+export async function recordFindings(run, findings) {
+  const checked = {
+    ...run,
+    status: 'checked',
+    checkedAt: new Date().toISOString(),
+    findings: findings.map((f) => ({ ...f, questionId: run.questions[f.q - 1].id })),
+  };
+  await kvs.set(runKey(run.pageId, run.runId), checked);
+  return checked;
 }

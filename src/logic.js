@@ -112,15 +112,59 @@ function parseAnswerLines(text) {
   return items.length ? items : null;
 }
 
-// Why submit-cold-read-answers must refuse the answers, or null if the run takes them.
-// One run takes answers once, and only from the person who started it.
-export function submitRefusal(run, { pageId, runId, accountId }) {
+// Why a run must refuse this step, or null if it takes it. The order is fixed:
+// answers (status "reading" -> "answered"), then findings ("answered" -> "checked"),
+// each once per run and only from the person who started the run.
+export function runRefusal(run, step, { pageId, runId, accountId }) {
   if (!run) return `There is no cold read ${runId} of page ${pageId}. Call get-cold-read-packet first.`;
-  if (run.status !== 'reading') {
+  if (run.startedBy && run.startedBy !== accountId) return 'This cold read was started by another person.';
+  const ready = step === 'answers' ? 'reading' : 'answered';
+  if (run.status === ready) return null;
+  if (step === 'answers') {
     return `Answers to cold read ${runId} are already saved. Start a new cold read to answer again.`;
   }
-  if (run.startedBy && run.startedBy !== accountId) return 'This cold read was started by another person.';
-  return null;
+  if (run.status === 'reading') return `Submit the answers to cold read ${runId} first.`;
+  return `Findings of cold read ${runId} are already saved. Start a new cold read to check again.`;
+}
+
+// Expected answers the reader gets once its answers are saved: only questions that have one.
+// q is the question number in the run, the same number the reader answered.
+export function expectedOf(run) {
+  return run.questions
+    .map((question, i) => ({ q: i + 1, question: question.text, expected: question.expected || '' }))
+    .filter((item) => item.expected);
+}
+
+// Parses the findings the agent sends to submit-cold-read-findings:
+// a JSON array of {"q": number, "verdict": "match" | "A" | "B" | "C", "note": string}.
+// Only questions in `allowed` (those with an expected answer) count.
+export function parseFindings(raw, allowed) {
+  let data = raw;
+  if (typeof raw === 'string') {
+    const text = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (data && !Array.isArray(data) && Array.isArray(data.findings)) data = data.findings;
+  if (!Array.isArray(data)) {
+    return { error: 'findings must be a JSON array of {"q": number, "verdict": "match" | "A" | "B" | "C", "note": string}.' };
+  }
+  const byNumber = new Map();
+  for (const item of data) {
+    const q = Number(item?.q);
+    if (!allowed.has(q) || byNumber.has(q)) continue;
+    const v = String(item?.verdict ?? '').trim();
+    const verdict = /^match/i.test(v) ? 'match' : (v.match(/^([ABC])\b/i)?.[1] ?? '').toUpperCase();
+    if (!verdict) continue;
+    byNumber.set(q, { q, verdict, note: String(item?.note ?? '').trim().slice(0, MAX_ANSWER_CHARS) });
+  }
+  if (byNumber.size === 0) {
+    return { error: 'No valid findings found. Give a verdict for each question that has an expected answer.' };
+  }
+  return { findings: [...byNumber.values()].sort((a, b) => a.q - b.q) };
 }
 
 // Run IDs sort by time: base-36 milliseconds plus a short random tail against collisions.

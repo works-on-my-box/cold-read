@@ -20,14 +20,32 @@ modules:
 
         Then call the submit-cold-read-answers action once, with the page ID, the
         runId from the packet and the answers as a JSON array of objects
-        {"q": number, "answer": string, "quote": string}. Finally show the user
-        the answers as a numbered list and tell them that Cold Read under the
-        page title shows the answers next to the expected ones.
+        {"q": number, "answer": string, "quote": string}.
+
+        Only after your answers are saved, its result may contain the page
+        owner's expected answers. Do not change your answers. Compare each saved
+        answer with the expected answer and give one verdict:
+        "match" - your answer means the same as the expected answer;
+        "A" - a newcomer who follows the page would act differently from what the
+        owner expects, stop, or repeat something that is already done;
+        "B" - the page says something wrong or out of date, but the next action
+        would not change;
+        "C" - the page does not cover what the owner expects.
+        Add a one-sentence note on what the page should add or fix (empty for
+        match). Then call the submit-cold-read-findings action once, with the page
+        ID, the runId and the findings as a JSON array of objects
+        {"q": number, "verdict": string, "note": string}.
+
+        Finally show the user the findings, A first, each with its note, and tell
+        them that Cold Read under the page title shows the answers next to the
+        expected ones. If there were no expected answers, show your answers as a
+        numbered list and name the NOT STATED ones as gaps in the page.
       conversationStarters:
         - Run a cold read of this page
       actions:
         - get-cold-read-packet
         - submit-cold-read-answers
+        - submit-cold-read-findings
   action:
     - key: get-cold-read-packet
       name: Get cold read packet
@@ -67,6 +85,32 @@ modules:
           description: >
             JSON array of objects {"q": number, "answer": string, "quote": string},
             one per question, in the order of the questions.
+    - key: submit-cold-read-findings
+      name: Submit cold read findings
+      function: submitFindings
+      actionVerb: CREATE
+      description: >
+        Records how the saved cold read answers compare with the page owner's
+        expected answers. Call it once, after submit-cold-read-answers returned
+        the expected answers.
+      inputs:
+        pageId:
+          title: Page ID
+          type: string
+          required: true
+          description: The numeric ID of the Confluence page that was read.
+        runId:
+          title: Run ID
+          type: string
+          required: true
+          description: The runId from the cold read packet.
+        findings:
+          title: Findings
+          type: string
+          required: true
+          description: >
+            JSON array of objects {"q": number, "verdict": "match" | "A" | "B" | "C",
+            "note": string}, one per question that has an expected answer.
   confluence:contentBylineItem:
     - key: cold-read-byline
       title: Cold Read
@@ -82,6 +126,8 @@ modules:
       handler: index.getPacket
     - key: submitAnswers
       handler: index.submitAnswers
+    - key: submitFindings
+      handler: index.submitFindings
     - key: panelResolver
       handler: resolvers.handler
 resources:
