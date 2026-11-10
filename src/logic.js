@@ -119,12 +119,48 @@ export function runRefusal(run, step, { pageId, runId, accountId }) {
   if (!run) return `There is no cold read ${runId} of page ${pageId}. Call get-cold-read-packet first.`;
   if (run.startedBy && run.startedBy !== accountId) return 'This cold read was started by another person.';
   const ready = step === 'answers' ? 'reading' : 'answered';
-  if (run.status === ready) return null;
-  if (step === 'answers') {
-    return `Answers to cold read ${runId} are already saved. Start a new cold read to answer again.`;
+  if (run.status !== ready) {
+    if (step === 'answers') {
+      return `Answers to cold read ${runId} are already saved. Start a new cold read to answer again.`;
+    }
+    if (run.status === 'reading') return `Submit the answers to cold read ${runId} first.`;
+    return `Findings of cold read ${runId} are already saved. Start a new cold read to check again.`;
   }
-  if (run.status === 'reading') return `Submit the answers to cold read ${runId} first.`;
-  return `Findings of cold read ${runId} are already saved. Start a new cold read to check again.`;
+  // With expected answers the run is a test of the page; without them it is checked by a warm read.
+  const hasExpected = run.questions.some((q) => q.expected);
+  if (step === 'warm' && hasExpected) {
+    return `Cold read ${runId} has expected answers: compare with them, a warm read is not needed.`;
+  }
+  if (step === 'findings' && !hasExpected && !run.warm) {
+    return `Call get-warm-read-packet for cold read ${runId} first.`;
+  }
+  return null;
+}
+
+// Search terms for the warm read: the distinctive words of the page title.
+const STOP_WORDS = new Set(
+  'a an and the of to for in on at by with from or is are be our we notes note page draft handoff hand off'.split(' '),
+);
+export function searchTerms(title) {
+  const words = String(title || '')
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length > 1 && !STOP_WORDS.has(w.toLowerCase()));
+  return [...new Set(words)].slice(0, 6);
+}
+
+// CQL for pages that share at least `minShared` (1 or 2) of the terms, without the page itself.
+// Terms are letters and digits only (searchTerms), so they need no escaping.
+export function relatedCql(pageId, terms, minShared = 1) {
+  const has = (t) => `text ~ "${t}"`;
+  let match = terms.map(has).join(' OR ');
+  if (minShared === 2 && terms.length >= 2) {
+    const pairs = [];
+    for (let i = 0; i < terms.length; i += 1) {
+      for (let j = i + 1; j < terms.length; j += 1) pairs.push(`(${has(terms[i])} AND ${has(terms[j])})`);
+    }
+    match = pairs.join(' OR ');
+  }
+  return `type = page AND id != ${pageId} AND (${match})`;
 }
 
 // Expected answers the reader gets once its answers are saved: only questions that have one.

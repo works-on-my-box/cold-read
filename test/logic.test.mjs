@@ -8,6 +8,8 @@ import {
   runRefusal,
   expectedOf,
   parseFindings,
+  searchTerms,
+  relatedCql,
   storageToText,
   newRunId,
   isRunId,
@@ -82,13 +84,38 @@ test('parseAnswers falls back to "Q1: answer" lines', () => {
 
 test('runRefusal holds the order: answers once, then findings once, same person', () => {
   const ids = { pageId: '1', runId: 'abc12345', accountId: 'u1' };
+  const run = (status, extra = {}) => ({ status, startedBy: 'u1', questions: [{ id: 'h1', text: 'Q', expected: 'E' }], ...extra });
   assert.match(runRefusal(undefined, 'answers', ids), /no cold read/);
-  assert.equal(runRefusal({ status: 'reading', startedBy: 'u1' }, 'answers', ids), null);
-  assert.match(runRefusal({ status: 'answered', startedBy: 'u1' }, 'answers', ids), /already saved/);
-  assert.match(runRefusal({ status: 'reading', startedBy: 'u2' }, 'answers', ids), /another person/);
-  assert.match(runRefusal({ status: 'reading', startedBy: 'u1' }, 'findings', ids), /answers .* first/);
-  assert.equal(runRefusal({ status: 'answered', startedBy: 'u1' }, 'findings', ids), null);
-  assert.match(runRefusal({ status: 'checked', startedBy: 'u1' }, 'findings', ids), /Findings .* already saved/);
+  assert.equal(runRefusal(run('reading'), 'answers', ids), null);
+  assert.match(runRefusal(run('answered'), 'answers', ids), /already saved/);
+  assert.match(runRefusal({ ...run('reading'), startedBy: 'u2' }, 'answers', ids), /another person/);
+  assert.match(runRefusal(run('reading'), 'findings', ids), /answers .* first/);
+  assert.equal(runRefusal(run('answered'), 'findings', ids), null);
+  assert.match(runRefusal(run('checked'), 'findings', ids), /Findings .* already saved/);
+});
+
+test('runRefusal: without expected answers the findings need a warm read first', () => {
+  const ids = { pageId: '1', runId: 'abc12345', accountId: 'u1' };
+  const noExpected = { status: 'answered', startedBy: 'u1', questions: [{ id: 'h1', text: 'Q', expected: '' }] };
+  assert.equal(runRefusal(noExpected, 'warm', ids), null);
+  assert.match(runRefusal(noExpected, 'findings', ids), /get-warm-read-packet/);
+  assert.equal(runRefusal({ ...noExpected, warm: { sources: [] } }, 'findings', ids), null);
+  const withExpected = { ...noExpected, questions: [{ id: 'h1', text: 'Q', expected: 'E' }] };
+  assert.match(runRefusal(withExpected, 'warm', ids), /not needed/);
+});
+
+test('searchTerms and relatedCql build a safe query from the title', () => {
+  assert.deepEqual(searchTerms('Handoff: Acme renewal (Alex to Priya)'), ['Acme', 'renewal', 'Alex', 'Priya']);
+  assert.deepEqual(searchTerms('"; DROP --'), ['DROP']);
+  assert.equal(
+    relatedCql('3964929', ['Acme', 'renewal']),
+    'type = page AND id != 3964929 AND (text ~ "Acme" OR text ~ "renewal")',
+  );
+  assert.equal(
+    relatedCql('1', ['Acme', 'renewal', 'Priya'], 2),
+    'type = page AND id != 1 AND ((text ~ "Acme" AND text ~ "renewal") OR (text ~ "Acme" AND text ~ "Priya") OR (text ~ "renewal" AND text ~ "Priya"))',
+  );
+  assert.equal(relatedCql('1', ['Acme'], 2), 'type = page AND id != 1 AND (text ~ "Acme")');
 });
 
 test('expectedOf lists only questions with an expected answer, by run number', () => {

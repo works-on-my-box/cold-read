@@ -71,10 +71,10 @@ function FindingCell({ finding }) {
   );
 }
 
-function RunStatus({ run, hasExpected }) {
+function RunStatus({ run }) {
   if (run.status === 'reading') return <Lozenge appearance="inprogress">Waiting for answers</Lozenge>;
-  if (run.status === 'answered' && hasExpected) return <Lozenge appearance="inprogress">Waiting for findings</Lozenge>;
-  return <Lozenge appearance="success">{run.status === 'checked' ? 'Checked' : 'Answered'}</Lozenge>;
+  if (run.status === 'answered') return <Lozenge appearance="inprogress">Waiting for findings</Lozenge>;
+  return <Lozenge appearance="success">Checked</Lozenge>;
 }
 
 function LastRun({ state, onRun, onRefresh, runDisabled }) {
@@ -111,7 +111,7 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
       { key: 'n', content: '#' },
       { key: 'q', content: 'Question' },
       { key: 'a', content: 'Cold reader’s answer' },
-      { key: 'e', content: 'Expected answer' },
+      ...(hasExpected ? [{ key: 'e', content: 'Expected answer' }] : []),
       ...(findings.length ? [{ key: 'f', content: 'Finding' }] : []),
     ],
   };
@@ -121,7 +121,7 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
       { key: 'n', content: String(i + 1) },
       { key: 'q', content: q.text },
       { key: 'a', content: <AnswerCell run={run} answer={answers.find((a) => a.questionId === q.id)} /> },
-      { key: 'e', content: expectedOf(q) ? expectedOf(q) : <Em>Not set</Em> },
+      ...(hasExpected ? [{ key: 'e', content: expectedOf(q) ? expectedOf(q) : <Em>Not set</Em> }] : []),
       ...(findings.length ? [{ key: 'f', content: <FindingCell finding={findings.find((f) => f.questionId === q.id)} /> }] : []),
     ],
   }));
@@ -129,7 +129,7 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
   return (
     <Stack space="space.200">
       <Inline space="space.100" alignBlock="center" shouldWrap>
-        <RunStatus run={run} hasExpected={hasExpected} />
+        <RunStatus run={run} />
         <Text>Read version {run.pageVersion} · {formatTime(run.checkedAt || run.answeredAt || run.startedAt)}</Text>
         {pageChanged ? <Lozenge appearance="moved">Page changed since this run</Lozenge> : null}
       </Inline>
@@ -138,10 +138,17 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
           <Text>The reader has the page and is answering. If the Rovo chat asks to confirm “Submit cold read answers”, confirm it, then press Refresh.</Text>
         </SectionMessage>
       ) : null}
-      {run.status === 'answered' && hasExpected ? (
+      {run.status === 'answered' ? (
         <SectionMessage appearance="information">
-          <Text>The answers are saved and the reader is comparing them with the expected answers. If the Rovo chat asks to confirm “Submit cold read findings”, confirm it, then press Refresh.</Text>
+          <Text>
+            The answers are saved and the reader is comparing them with {hasExpected ? 'the expected answers' : 'pages related to this one (warm read)'}. If the Rovo chat asks to confirm “Submit cold read findings”, confirm it, then press Refresh.
+          </Text>
         </SectionMessage>
+      ) : null}
+      {run.warm ? (
+        <Text>
+          Warm read: {run.warm.sources.length ? `compared with ${run.warm.sources.map((p) => `“${p.title}”`).join(', ')}` : 'no related pages found'}.
+        </Text>
       ) : null}
       {run.status !== 'reading' ? (
         <Text>

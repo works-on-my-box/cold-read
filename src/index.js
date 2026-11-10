@@ -1,10 +1,14 @@
 // The Rovo actions of the Cold Reader agent. Order the backend holds for one run:
 // 1. get-cold-read-packet: page text and questions, never the expected answers;
 // 2. submit-cold-read-answers: answers are saved once, and only then the expected answers come back;
-// 3. submit-cold-read-findings: the reader's own verdicts against the expected answers, once.
-import { fetchPage } from './confluence';
-import { getQuestions, startRun, getRun, recordAnswers, recordFindings } from './store';
-import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, isPageId, isRunId } from './logic';
+// 3. get-warm-read-packet (only without expected answers): related pages found by search;
+// 4. submit-cold-read-findings: the reader's own verdicts, once.
+import { fetchPage, searchPages } from './confluence';
+import { getQuestions, startRun, getRun, recordAnswers, recordFindings, recordWarm } from './store';
+import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, isPageId, isRunId } from './logic';
+
+const RELATED_PAGES = 5;
+const RELATED_CHARS = 4000;
 
 // The page the agent named, or, if that is not a page ID, the page the chat was opened on.
 // Rovo passes action inputs as top-level payload fields and the product context in payload.context.
@@ -89,7 +93,7 @@ export async function submitAnswers(payload, context) {
       answered: saved.answers.length,
       notStated,
       missing: saved.missing,
-      next: 'The page owner set no expected answers, so there is nothing to compare. Tell the user the answers are saved, list the NOT STATED ones as gaps in the page, and say that Cold Read under the page title shows the answers.',
+      next: 'The page owner set no expected answers. Call get-warm-read-packet with the pageId and runId for a warm read.',
     };
   }
   // The answers are fixed now, so the expected answers can be shown to the reader.
@@ -105,12 +109,49 @@ export async function submitAnswers(payload, context) {
   };
 }
 
+// The warm read: the same questions, answered from the page and the pages related to it.
+// A difference between the cold and the warm answer is a finding nobody had to write down in advance.
+export async function getWarmPacket(payload, context) {
+  const { pageId, runId, run, error } = await runFor('warm', payload, context);
+  if (error) return { error };
+
+  const terms = searchTerms(run.title);
+  if (terms.length === 0) return { error: 'The page title has no words to search by.' };
+  // Pages sharing two words of the title first; only if there are none, pages sharing one.
+  let found = await searchPages(relatedCql(pageId, terms, 2), RELATED_PAGES);
+  if (!found.error && found.length === 0) found = await searchPages(relatedCql(pageId, terms, 1), RELATED_PAGES);
+  if (found.error) return { error: found.error };
+  const pages = await Promise.all(found.map((p) => fetchPage(p.id, { withBody: true })));
+  const related = pages
+    .filter((p) => !p.error)
+    .map((p) => ({ pageId: p.id, title: p.title, text: p.text.slice(0, RELATED_CHARS) }));
+
+  await recordWarm(run, { terms, sources: related.map(({ pageId: id, title }) => ({ pageId: id, title })) });
+  console.log(`warm page=${pageId} run=${runId} terms=${terms.join(',')} related=${related.map((p) => p.pageId).join(',') || 'none'}`);
+
+  return {
+    pageId,
+    runId,
+    searchedFor: terms.join(' '),
+    related,
+    questions: run.questions.map((q, i) => ({
+      q: i + 1,
+      question: q.text,
+      coldAnswer: run.answers.find((a) => a.q === i + 1)?.answer ?? 'NO ANSWER',
+    })),
+    next: related.length
+      ? 'Answer each question again from the page and these related pages together, compare with coldAnswer and call submit-cold-read-findings once.'
+      : 'No related pages were found. Call submit-cold-read-findings with verdict C for each NOT STATED answer and match for the others.',
+  };
+}
+
 export async function submitFindings(payload, context) {
   const { pageId, runId, run, error } = await runFor('findings', payload, context);
   if (error) return { error };
 
-  const allowed = new Set(expectedOf(run).map((item) => item.q));
-  if (allowed.size === 0) return { error: 'This cold read has no expected answers to compare with.' };
+  // With expected answers only those questions are compared; after a warm read, all of them.
+  const expected = expectedOf(run);
+  const allowed = new Set(expected.length ? expected.map((item) => item.q) : run.questions.map((_, i) => i + 1));
   const parsed = parseFindings(payload?.findings, allowed);
   if (parsed.error) {
     console.log(`findings unreadable page=${pageId} run=${runId}: ${parsed.error}`);

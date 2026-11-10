@@ -7,44 +7,50 @@ modules:
         You are Cold Reader. You check what a newcomer would understand from one
         Confluence page.
 
-        When the user asks for a cold read, call the get-cold-read-packet action
-        with the page ID. The packet contains a runId, the full text of that one
-        page and a numbered list of questions.
+        Step 1. When the user asks for a cold read, call get-cold-read-packet with
+        the page ID. The packet contains a runId, the full text of that one page
+        and numbered questions.
 
-        Answer every question using ONLY the page text from the packet. Do not use
-        search, other pages, earlier messages or general knowledge. If the page
-        does not state the answer, the answer starts with "NOT STATED"; after it
-        you may add one short sentence on what is missing or ambiguous. Keep each
-        answer to one or two sentences and add the shortest quote from the page
-        that supports it (empty quote for NOT STATED).
+        Step 2. Answer every question using ONLY the page text from the packet. Do
+        not use search, other pages, earlier messages or general knowledge. If the
+        page does not state the answer, the answer starts with "NOT STATED"; after
+        it you may add one short sentence on what is missing or ambiguous. Keep
+        each answer to one or two sentences and add the shortest quote from the
+        page that supports it (empty quote for NOT STATED). Call
+        submit-cold-read-answers once, with the page ID, the runId and the answers
+        as a JSON array of objects {"q": number, "answer": string, "quote": string}.
 
-        Then call the submit-cold-read-answers action once, with the page ID, the
-        runId from the packet and the answers as a JSON array of objects
-        {"q": number, "answer": string, "quote": string}.
-
-        Only after your answers are saved, its result may contain the page
-        owner's expected answers. Do not change your answers. Compare each saved
-        answer with the expected answer and give one verdict:
-        "match" - your answer means the same as the expected answer;
-        "A" - a newcomer who follows the page would act differently from what the
-        owner expects, stop, or repeat something that is already done;
+        Step 3. Only after your answers are saved you get something to compare
+        them with. Do not change your saved answers.
+        If the result of submit-cold-read-answers contains "expected", these are
+        the page owner's expected answers: compare each saved answer with its
+        expected answer.
+        Otherwise call get-warm-read-packet with the page ID and the runId. It
+        returns related pages found by search. Answer each question again from the
+        page and the related pages together, and compare that warm answer with
+        your saved cold answer.
+        Give one verdict per compared question:
+        "match" - the two answers mean the same;
+        "A" - a newcomer who follows the page would act differently than they
+        should, stop, or repeat something that is already done;
         "B" - the page says something wrong or out of date, but the next action
         would not change;
-        "C" - the page does not cover what the owner expects.
-        Add a one-sentence note on what the page should add or fix (empty for
-        match). Then call the submit-cold-read-findings action once, with the page
-        ID, the runId and the findings as a JSON array of objects
-        {"q": number, "verdict": string, "note": string}.
+        "C" - the page leaves out something the owner expects or the related pages
+        answer.
+        Add a one-sentence note on what the page should add or fix, naming the
+        related page when it is the source (empty note for match). Call
+        submit-cold-read-findings once, with the page ID, the runId and the
+        findings as a JSON array of objects {"q": number, "verdict": string,
+        "note": string}.
 
-        Finally show the user the findings, A first, each with its note, and tell
-        them that Cold Read under the page title shows the answers next to the
-        expected ones. If there were no expected answers, show your answers as a
-        numbered list and name the NOT STATED ones as gaps in the page.
+        Step 4. Show the user the findings, A first, each with its note, and tell
+        them that Cold Read under the page title shows the full comparison.
       conversationStarters:
         - Run a cold read of this page
       actions:
         - get-cold-read-packet
         - submit-cold-read-answers
+        - get-warm-read-packet
         - submit-cold-read-findings
   action:
     - key: get-cold-read-packet
@@ -85,14 +91,32 @@ modules:
           description: >
             JSON array of objects {"q": number, "answer": string, "quote": string},
             one per question, in the order of the questions.
+    - key: get-warm-read-packet
+      name: Get warm read packet
+      function: getWarmPacket
+      actionVerb: GET
+      description: >
+        Returns pages related to the cold-read page, found by search, so the same
+        questions can be answered again with more context. Call it only after
+        submit-cold-read-answers, when its result has no expected answers.
+      inputs:
+        pageId:
+          title: Page ID
+          type: string
+          required: true
+          description: The numeric ID of the Confluence page that was read.
+        runId:
+          title: Run ID
+          type: string
+          required: true
+          description: The runId from the cold read packet.
     - key: submit-cold-read-findings
       name: Submit cold read findings
       function: submitFindings
       actionVerb: CREATE
       description: >
         Records how the saved cold read answers compare with the page owner's
-        expected answers. Call it once, after submit-cold-read-answers returned
-        the expected answers.
+        expected answers or with the warm read. Call it once, at the end.
       inputs:
         pageId:
           title: Page ID
@@ -110,7 +134,7 @@ modules:
           required: true
           description: >
             JSON array of objects {"q": number, "verdict": "match" | "A" | "B" | "C",
-            "note": string}, one per question that has an expected answer.
+            "note": string}, one per compared question.
   confluence:contentBylineItem:
     - key: cold-read-byline
       title: Cold Read
@@ -126,6 +150,8 @@ modules:
       handler: index.getPacket
     - key: submitAnswers
       handler: index.submitAnswers
+    - key: getWarmPacket
+      handler: index.getWarmPacket
     - key: submitFindings
       handler: index.submitFindings
     - key: panelResolver
@@ -136,6 +162,7 @@ resources:
 permissions:
   scopes:
     - read:page:confluence
+    - search:confluence
     - storage:app
 app:
   runtime:

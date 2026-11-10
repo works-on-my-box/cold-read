@@ -94,3 +94,10 @@ export async function recordFindings(run, findings) {
   await kvs.set(runKey(run.pageId, run.runId), checked);
   return checked;
 }
+
+// The warm read of a run: which related pages the reader got, and with what search.
+export async function recordWarm(run, { terms, sources }) {
+  const warm = { ...run, warm: { at: new Date().toISOString(), terms, sources } };
+  await kvs.set(runKey(run.pageId, run.runId), warm);
+  return warm;
+}

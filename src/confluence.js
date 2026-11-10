@@ -28,3 +28,17 @@ export async function canEditPage(pageId) {
   const { operations = [] } = await res.json();
   return operations.some((op) => op.operation === 'update' && op.targetType === 'page');
 }
+
+// Pages related to the read page, found by CQL as the user: only what they can see.
+// Returns [{ id, title }] or { error }.
+export async function searchPages(cql, limit = 5) {
+  const res = await api
+    .asUser()
+    .requestConfluence(route`/wiki/rest/api/search?cql=${cql}&limit=${limit}`);
+  if (!res.ok) return { error: `Confluence search returned ${res.status}` };
+  const { results = [] } = await res.json();
+  return results
+    .map((r) => r.content)
+    .filter((c) => c?.id && c.type === 'page')
+    .map((c) => ({ id: String(c.id), title: c.title }));
+}
