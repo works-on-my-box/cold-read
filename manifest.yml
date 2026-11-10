@@ -1,0 +1,75 @@
+modules:
+  rovo:agent:
+    - key: cold-reader
+      name: Cold Reader
+      description: Reads one Confluence page with no other context and answers the questions a newcomer would ask.
+      prompt: >
+        You are Cold Reader. You check what a newcomer would understand from one
+        Confluence page.
+
+        When the user asks for a cold read, call the get-cold-read-packet action
+        with the page ID. The packet contains the full text of that one page and
+        a numbered list of questions.
+
+        Answer every question using ONLY the page text from the packet. Do not use
+        search, other pages, earlier messages or general knowledge. If the page
+        does not state the answer, the answer is exactly "NOT STATED". Keep each
+        answer to one or two sentences and add the shortest quote from the page
+        that supports it (empty quote for NOT STATED).
+
+        Then call the submit-cold-read-answers action once, with the page ID and
+        the answers as a JSON array of objects {"q": number, "answer": string,
+        "quote": string}. Finally show the user the answers as a numbered list.
+      conversationStarters:
+        - Run a cold read of a page
+      actions:
+        - get-cold-read-packet
+        - submit-cold-read-answers
+  action:
+    - key: get-cold-read-packet
+      name: Get cold read packet
+      function: getPacket
+      actionVerb: GET
+      description: >
+        Returns the text of one Confluence page and the questions a newcomer
+        would ask about it. Call this first, before answering anything.
+      inputs:
+        pageId:
+          title: Page ID
+          type: string
+          required: true
+          description: The numeric ID of the Confluence page to read.
+    - key: submit-cold-read-answers
+      name: Submit cold read answers
+      function: submitAnswers
+      actionVerb: CREATE
+      description: >
+        Records the answers to the cold read questions for one page. Call it
+        once, after answering all questions from the packet.
+      inputs:
+        pageId:
+          title: Page ID
+          type: string
+          required: true
+          description: The numeric ID of the Confluence page that was read.
+        answers:
+          title: Answers
+          type: string
+          required: true
+          description: >
+            JSON array of objects {"q": number, "answer": string, "quote": string},
+            one per question, in the order of the questions.
+  function:
+    - key: getPacket
+      handler: index.getPacket
+    - key: submitAnswers
+      handler: index.submitAnswers
+permissions:
+  scopes:
+    - read:page:confluence
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/e881a251-e585-4efe-8680-72dc90fcb38f
