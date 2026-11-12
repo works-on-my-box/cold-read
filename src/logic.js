@@ -165,9 +165,10 @@ export function relatedCql(pageId, terms, minShared = 1) {
   return `type = page AND id != ${pageId} AND (${sharedTerms(terms, minShared)})`;
 }
 
-// JQL for Jira issues that share the terms, newest first.
+// JQL for Jira issues that share the terms, newest first. Cold Read's own issues (label cold-read)
+// are left out: they repeat the findings of an earlier run, and a warm read must not check the page against them.
 export function relatedJql(terms, minShared = 1) {
-  return `(${sharedTerms(terms, minShared)}) ORDER BY updated DESC`;
+  return `(${sharedTerms(terms, minShared)}) AND (labels IS EMPTY OR labels NOT IN ("cold-read")) ORDER BY updated DESC`;
 }
 
 // Atlassian Document Format (Jira descriptions and comments) to plain text.
@@ -273,6 +274,14 @@ export function statusAdvice(run, pageVersion) {
     return `Do not act on this page yet: ${a} class A finding(s), a newcomer would act wrongly. ${fix}`;
   }
   return 'The last cold read of this version found no class A problems.';
+}
+
+// Whether a run that has just finished becomes the page's last run. Only finished runs count, so an
+// abandoned packet never hides the findings of the last run; a run that started before the current
+// last run does not replace it either.
+export function replacesLastRun(current, candidate) {
+  if (candidate?.status !== 'checked') return false;
+  return !current || String(candidate.startedAt) >= String(current.startedAt);
 }
 
 // State of a page by its latest cold read. key: none | unfinished | changed | A | fix | clear.

@@ -21,6 +21,7 @@ import {
   newRunId,
   isRunId,
   isPageId,
+  replacesLastRun,
 } from '../src/logic.js';
 
 test('validateQuestions accepts the handoff set and trims values', () => {
@@ -181,13 +182,25 @@ test('statusAdvice says whether the page is safe to act on', () => {
   assert.match(statusAdvice(tracked, 3), /The fix is tracked in Jira issue REN-7\./);
 });
 
-test('relatedJql searches Jira issues by the same terms, newest first', () => {
-  assert.equal(relatedJql(['Acme', 'renewal']), '(text ~ "Acme" OR text ~ "renewal") ORDER BY updated DESC');
+test('relatedJql searches Jira issues by the same terms, newest first, without Cold Read\'s own issues', () => {
+  const own = ' AND (labels IS EMPTY OR labels NOT IN ("cold-read"))';
+  assert.equal(relatedJql(['Acme', 'renewal']), `(text ~ "Acme" OR text ~ "renewal")${own} ORDER BY updated DESC`);
   assert.equal(
     relatedJql(['Acme', 'renewal', 'Priya'], 2),
-    '((text ~ "Acme" AND text ~ "renewal") OR (text ~ "Acme" AND text ~ "Priya") OR (text ~ "renewal" AND text ~ "Priya")) ORDER BY updated DESC',
+    `((text ~ "Acme" AND text ~ "renewal") OR (text ~ "Acme" AND text ~ "Priya") OR (text ~ "renewal" AND text ~ "Priya"))${own} ORDER BY updated DESC`,
   );
-  assert.equal(relatedJql(['Acme'], 2), '(text ~ "Acme") ORDER BY updated DESC');
+  assert.equal(relatedJql(['Acme'], 2), `(text ~ "Acme")${own} ORDER BY updated DESC`);
+});
+
+test('replacesLastRun: only a finished run becomes the last one, and not an older one', () => {
+  const run = (startedAt, status = 'checked') => ({ runId: startedAt, startedAt, status });
+  assert.equal(replacesLastRun(undefined, run('2026-11-12T07:00:00Z')), true);
+  assert.equal(replacesLastRun(run('2026-11-12T07:00:00Z'), run('2026-11-12T07:05:00Z')), true);
+  // A run that started earlier and finished later does not hide the newer result.
+  assert.equal(replacesLastRun(run('2026-11-12T07:05:00Z'), run('2026-11-12T07:00:00Z')), false);
+  // Unfinished runs never replace a result: an abandoned packet must not hide the A findings.
+  assert.equal(replacesLastRun(run('2026-11-12T07:00:00Z'), run('2026-11-12T07:05:00Z', 'reading')), false);
+  assert.equal(replacesLastRun(undefined, run('2026-11-12T07:05:00Z', 'answered')), false);
 });
 
 test('adfToText reads Jira descriptions and comments', () => {

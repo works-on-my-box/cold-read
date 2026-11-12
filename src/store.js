@@ -5,10 +5,10 @@
 // Keys (KVS allows letters, digits and : . _ - # and spaces, up to 500 characters):
 //   questions:<pageId>        questions of a page and the owner's expected answers
 //   run:<pageId>:<runId>      one cold read: the questions given to the reader, its answers
-//   lastrun:<pageId>          runId of the latest cold read of the page
+//   lastrun:<pageId>          runId of the latest finished cold read of the page
 //   jiraproject:<spaceId>     Jira project last used for Cold Read issues in the space
 import { kvs, WhereConditions } from '@forge/kvs';
-import { HANDOFF_QUESTIONS, newRunId } from './logic';
+import { HANDOFF_QUESTIONS, newRunId, replacesLastRun } from './logic';
 
 const questionsKey = (pageId) => `questions:${pageId}`;
 const runKey = (pageId, runId) => `run:${pageId}:${runId}`;
@@ -49,12 +49,8 @@ export async function startRun({ pageId, title, pageVersion, questions, accountI
     startedBy: accountId,
     questions: questions.map(({ id, text }) => ({ id, text })),
   };
-  // One transaction, so lastrun never points to a run that was not saved.
-  await kvs
-    .transact()
-    .set(runKey(pageId, run.runId), run)
-    .set(lastRunKey(pageId), run.runId)
-    .execute();
+  // lastrun moves only when a run is finished (recordFindings).
+  await kvs.set(runKey(pageId, run.runId), run);
   return run;
 }
 
@@ -92,7 +88,10 @@ export async function recordFindings(run, findings) {
     checkedAt: new Date().toISOString(),
     findings: findings.map((f) => ({ ...f, questionId: run.questions[f.q - 1].id })),
   };
-  await kvs.set(runKey(run.pageId, run.runId), checked);
+  // One transaction, so lastrun never points to a run that was not saved.
+  let tx = kvs.transact().set(runKey(run.pageId, run.runId), checked);
+  if (replacesLastRun(await getLastRun(run.pageId), checked)) tx = tx.set(lastRunKey(run.pageId), run.runId);
+  await tx.execute();
   return checked;
 }
 

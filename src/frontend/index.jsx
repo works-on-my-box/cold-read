@@ -38,7 +38,8 @@ function AnswerCell({ run, answer }) {
     return run.status === 'reading' ? <Lozenge appearance="inprogress">Reading</Lozenge> : <Lozenge appearance="removed">No answer</Lozenge>;
   }
   if (answer.notStated) {
-    const extra = answer.answer.replace(/^NOT STATED[\s.:;,-]*/i, '');
+    const rest = answer.answer.replace(/^NOT STATED[\s.:;,-]*/i, '');
+    const extra = rest.charAt(0).toUpperCase() + rest.slice(1);
     return (
       <Stack space="space.050">
         <Lozenge appearance="removed">Not on the page</Lozenge>
@@ -390,7 +391,7 @@ const App = () => {
 
   return (
     <Stack space="space.200">
-      <Text>A fresh Rovo agent reads only this page, with no search and no other pages, and answers the questions. Where its answers miss what you expect, a newcomer will miss it too.</Text>
+      <Text>A fresh Rovo agent answers the questions from this page alone. Its answers are then compared with the answers you expect or, without them, with related pages and Jira issues. Where they differ, a newcomer would go wrong too.</Text>
       {rovoEnabled === false ? (
         <SectionMessage appearance="warning" title="Rovo is off on this site">
           <Text>The cold reader is a Rovo agent, so it cannot run here. Questions and expected answers still save. Ask a site admin to turn on Rovo.</Text>

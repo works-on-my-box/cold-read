@@ -119,18 +119,21 @@ export async function getWarmPacket(payload, context) {
 
   const terms = searchTerms(run.title);
   if (terms.length === 0) return { error: 'The page title has no words to search by.' };
-  // Pages sharing two words of the title first; only if there are none, pages sharing one.
+  // Pages and Jira issues sharing two words of the title. Only if neither has any, those sharing one word:
+  // one shared word alone drags in unrelated pages. Without Jira on the site (or without access) the warm
+  // read uses pages only.
   let found = await searchPages(relatedCql(pageId, terms, 2), RELATED_PAGES);
-  if (!found.error && found.length === 0) found = await searchPages(relatedCql(pageId, terms, 1), RELATED_PAGES);
+  let issues = await searchIssues(relatedJql(terms, 2), RELATED_ISSUES);
+  if (!found.error && found.length === 0 && (issues.error || issues.length === 0)) {
+    found = await searchPages(relatedCql(pageId, terms, 1), RELATED_PAGES);
+    if (!issues.error) issues = await searchIssues(relatedJql(terms, 1), RELATED_ISSUES);
+  }
   if (found.error) return { error: found.error };
   const pages = await Promise.all(found.map((p) => fetchPage(p.id, { withBody: true })));
   const related = pages
     .filter((p) => !p.error)
     .map((p) => ({ pageId: p.id, title: p.title, text: p.text.slice(0, RELATED_CHARS) }));
 
-  // Jira issues the same way. Without Jira on the site (or without access) the warm read uses pages only.
-  let issues = await searchIssues(relatedJql(terms, 2), RELATED_ISSUES);
-  if (!issues.error && issues.length === 0) issues = await searchIssues(relatedJql(terms, 1), RELATED_ISSUES);
   if (issues.error) console.log(`warm page=${pageId} run=${runId} jira skipped: ${issues.error}`);
   const relatedIssues = issues.error
     ? []
