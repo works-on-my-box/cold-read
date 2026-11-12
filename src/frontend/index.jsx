@@ -9,8 +9,10 @@ import ForgeReconciler, {
   EmptyState,
   Inline,
   Label,
+  Link,
   Lozenge,
   SectionMessage,
+  Select,
   Spinner,
   Stack,
   Strong,
@@ -77,7 +79,79 @@ function RunStatus({ run }) {
   return <Lozenge appearance="success">Checked</Lozenge>;
 }
 
-function LastRun({ state, onRun, onRefresh, runDisabled }) {
+// A findings go to the page owner as one Jira issue per run, with a link back to the page.
+function JiraBox({ run, onCreated }) {
+  const [projects, setProjects] = useState(null); // null = loading
+  const [projectId, setProjectId] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (run.jira) return;
+    invoke('getJiraProjects')
+      .then((res) => {
+        if (res?.error) throw new Error(res.error);
+        setProjects(res.projects);
+        setProjectId(res.defaultProjectId);
+      })
+      .catch((e) => {
+        setLoadError(String(e?.message || e));
+        setProjects([]);
+      });
+  }, [run.runId]);
+
+  if (run.jira) {
+    return (
+      <Inline space="space.100" alignBlock="center" shouldWrap>
+        <Lozenge appearance="success">In Jira</Lozenge>
+        <Text>{run.jira.assigned ? 'Issue for the page owner:' : 'Issue (this project does not let it be assigned to the page owner):'}</Text>
+        {run.jira.url ? <Link href={run.jira.url} openNewTab>{run.jira.key}</Link> : <Text>{run.jira.key}</Text>}
+      </Inline>
+    );
+  }
+  if (projects === null) return <Spinner label="Loading Jira projects" />;
+  if (loadError) {
+    return (
+      <SectionMessage appearance="warning" title="Jira is not available">
+        <Text>{loadError}</Text>
+      </SectionMessage>
+    );
+  }
+  if (projects.length === 0) return <Text>You cannot create issues in any Jira project on this site.</Text>;
+
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await invoke('createJiraIssue', { projectId, runId: run.runId });
+      if (res?.error) setError(res.error);
+      else onCreated(res.jira);
+    } catch (e) {
+      setError(String(e?.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const options = projects.map((p) => ({ label: `${p.name} (${p.key})`, value: p.id }));
+  return (
+    <Stack space="space.100">
+      <Text><Strong>Send the A findings to the page owner.</Strong> One Jira issue lists them, with a link to this page.</Text>
+      <Label labelFor="jira-project">Jira project</Label>
+      <Select inputId="jira-project" options={options} defaultValue={options.find((o) => o.value === projectId)} onChange={(o) => setProjectId(o?.value ?? null)} />
+      <Inline>
+        <Button appearance="primary" onClick={create} isDisabled={!projectId || busy}>Create Jira issue for the page owner</Button>
+      </Inline>
+      {error ? (
+        <SectionMessage appearance="error">
+          <Text>{error}</Text>
+        </SectionMessage>
+      ) : null}
+    </Stack>
+  );
+}
+
+function LastRun({ state, onRun, onRefresh, onJira, runDisabled }) {
   const run = state.lastRun;
   const buttons = (
     <ButtonGroup label="Run">
@@ -147,7 +221,7 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
       ) : null}
       {run.warm ? (
         <Text>
-          Warm read: {run.warm.sources.length ? `compared with ${run.warm.sources.map((p) => `“${p.title}”`).join(', ')}` : 'no related pages found'}.
+          Warm read: {run.warm.sources.length ? `compared with ${run.warm.sources.map((p) => (p.issueKey ? `${p.issueKey} “${p.title}”` : `“${p.title}”`)).join(', ')}` : 'no related pages or Jira issues found'}.
         </Text>
       ) : null}
       {run.status !== 'reading' ? (
@@ -157,6 +231,7 @@ function LastRun({ state, onRun, onRefresh, runDisabled }) {
         </Text>
       ) : null}
       <DynamicTable head={head} rows={rows} />
+      {run.status === 'checked' && count('A') > 0 ? <JiraBox run={run} onCreated={onJira} /> : null}
       {buttons}
     </Stack>
   );
@@ -294,6 +369,7 @@ const App = () => {
     }
   };
   const onRun = () => openAgent(`Run a cold read of Confluence page ${state.pageId}.`);
+  const onJira = (jira) => setState((prev) => ({ ...prev, lastRun: { ...prev.lastRun, jira } }));
   const onSuggest = () => openAgent(`Suggest cold read questions for Confluence page ${state.pageId}.`);
 
   if (!state) return <Spinner label="Loading Cold Read" />;
@@ -332,7 +408,7 @@ const App = () => {
           <Tab>Questions ({draft.length})</Tab>
         </TabList>
         <TabPanel>
-          <LastRun state={state} onRun={onRun} onRefresh={load} runDisabled={dirty || busy || rovoEnabled === false} />
+          <LastRun state={state} onRun={onRun} onRefresh={load} onJira={onJira} runDisabled={dirty || busy || rovoEnabled === false} />
         </TabPanel>
         <TabPanel>
           <Questions state={state} draft={draft} setDraft={setDraft} formKey={formKey} dirty={dirty} setDirty={setDirty} busy={busy} onSave={onSave} onReset={onReset} onSuggest={onSuggest} rovoEnabled={rovoEnabled} />

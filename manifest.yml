@@ -26,9 +26,9 @@ modules:
         the page owner's expected answers: compare each saved answer with its
         expected answer.
         Otherwise call get-warm-read-packet with the page ID and the runId. It
-        returns related pages found by search. Answer each question again from the
-        page and the related pages together, and compare that warm answer with
-        your saved cold answer.
+        returns related pages and Jira issues found by search. Answer each question
+        again from the page and the related pages and issues together, and compare
+        that warm answer with your saved cold answer.
         Give one verdict per compared question:
         "match" - the two answers mean the same;
         "A" - a newcomer who follows the page would act differently than they
@@ -36,9 +36,9 @@ modules:
         "B" - the page says something wrong or out of date, but the next action
         would not change;
         "C" - the page leaves out something the owner expects or the related pages
-        answer.
+        and issues answer.
         Add a one-sentence note on what the page should add or fix, naming the
-        related page when it is the source (empty note for match). Call
+        related page or Jira issue when it is the source (empty note for match). Call
         submit-cold-read-findings once, with the page ID, the runId and the
         findings as a JSON array of objects {"q": number, "verdict": string,
         "note": string}.
@@ -162,8 +162,8 @@ modules:
       function: getWarmPacket
       actionVerb: GET
       description: >
-        Returns pages related to the cold-read page, found by search, so the same
-        questions can be answered again with more context. Call it only after
+        Returns pages and Jira issues related to the cold-read page, found by
+        search, so the same questions can be answered again with more context. Call it only after
         submit-cold-read-answers, when its result has no expected answers.
       inputs:
         pageId:
@@ -250,6 +250,8 @@ permissions:
     - read:page:confluence
     - search:confluence
     - storage:app
+    - read:jira-work
+    - write:jira-work
 app:
   runtime:
     name: nodejs24.x

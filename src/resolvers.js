@@ -2,8 +2,9 @@
 // The page ID always comes from the Forge context of the panel, never from the browser payload.
 import Resolver from '@forge/resolver';
 import { fetchPage, canEditPage } from './confluence';
-import { getQuestions, saveQuestions, resetQuestions, getLastRun, pagesWithColdRead } from './store';
-import { validateQuestions, pageState, STATE_ORDER } from './logic';
+import { creatableProjects, createIssue } from './jira';
+import { getQuestions, saveQuestions, resetQuestions, getLastRun, recordJira, getSpaceJiraProject, setSpaceJiraProject, pagesWithColdRead } from './store';
+import { validateQuestions, pageState, findingsIssue, STATE_ORDER } from './logic';
 
 const resolver = new Resolver();
 
@@ -46,6 +47,49 @@ resolver.define('resetQuestions', async ({ context }) => {
 
   await resetQuestions(pageId);
   return getQuestions(pageId);
+});
+
+// Jira projects for the issue about A findings, the one last used in this space first.
+resolver.define('getJiraProjects', async ({ context }) => {
+  const projects = await creatableProjects();
+  if (projects.error) return { error: projects.error };
+  const spaceId = String(context?.extension?.space?.id ?? '');
+  const last = spaceId ? await getSpaceJiraProject(spaceId) : undefined;
+  return { projects, defaultProjectId: projects.some((p) => p.id === last) ? last : projects[0]?.id ?? null };
+});
+
+// One Jira issue per run for its A findings, assigned to the page owner. Anyone who can see the page
+// may file it; Jira checks that they can create issues in the project.
+resolver.define('createJiraIssue', async ({ payload, context }) => {
+  const { pageId, type } = pageOf(context);
+  if (type !== 'page') return { error: 'Cold Read works on pages only.' };
+  const projectId = String(payload?.projectId ?? '');
+  if (!/^\d{1,20}$/.test(projectId)) return { error: 'Choose a Jira project.' };
+
+  const page = await fetchPage(pageId);
+  if (page.error) return { error: page.error };
+  const run = await getLastRun(pageId);
+  if (!run) return { error: 'This page has no cold read yet.' };
+  if (run.runId !== payload?.runId) return { error: 'This page has a newer cold read. Press Refresh.' };
+  if (run.jira) return { jira: run.jira };
+
+  const fields = findingsIssue(run, { pageTitle: page.title, pageUrl: page.url });
+  if (fields.error) return { error: fields.error };
+  const created = await createIssue({ projectId, summary: fields.summary, description: fields.description, assigneeId: page.ownerId });
+  if (created.error) return { error: created.error };
+
+  const jira = {
+    key: created.key,
+    url: page.url ? `${new URL(page.url).origin}/browse/${created.key}` : null,
+    assigned: created.assigned,
+    findings: fields.count,
+    createdAt: new Date().toISOString(),
+    createdBy: context?.accountId,
+  };
+  await recordJira(run, jira);
+  if (page.spaceId) await setSpaceJiraProject(page.spaceId, projectId);
+  console.log(`jira page=${pageId} run=${run.runId} issue=${created.key} assigned=${created.assigned} A=${fields.count}`);
+  return { jira };
 });
 
 // Space summary: pages of this space with Cold Read questions or runs, worst first.

@@ -1,13 +1,15 @@
 // The Rovo actions of the Cold Reader agent. Order the backend holds for one run:
 // 1. get-cold-read-packet: page text and questions, never the expected answers;
 // 2. submit-cold-read-answers: answers are saved once, and only then the expected answers come back;
-// 3. get-warm-read-packet (only without expected answers): related pages found by search;
+// 3. get-warm-read-packet (only without expected answers): related pages and Jira issues found by search;
 // 4. submit-cold-read-findings: the reader's own verdicts, once.
 import { fetchPage, searchPages, canEditPage } from './confluence';
+import { searchIssues } from './jira';
 import { getQuestions, saveQuestions, startRun, getRun, getLastRun, recordAnswers, recordFindings, recordWarm } from './store';
-import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, statusAdvice, bylineStatus, mergeSuggested, isPageId, isRunId } from './logic';
+import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, relatedJql, statusAdvice, bylineStatus, mergeSuggested, isPageId, isRunId } from './logic';
 
 const RELATED_PAGES = 5;
+const RELATED_ISSUES = 5;
 const RELATED_CHARS = 4000;
 
 // The page the agent named, or, if that is not a page ID, the page the chat was opened on.
@@ -126,22 +128,35 @@ export async function getWarmPacket(payload, context) {
     .filter((p) => !p.error)
     .map((p) => ({ pageId: p.id, title: p.title, text: p.text.slice(0, RELATED_CHARS) }));
 
-  await recordWarm(run, { terms, sources: related.map(({ pageId: id, title }) => ({ pageId: id, title })) });
-  console.log(`warm page=${pageId} run=${runId} terms=${terms.join(',')} related=${related.map((p) => p.pageId).join(',') || 'none'}`);
+  // Jira issues the same way. Without Jira on the site (or without access) the warm read uses pages only.
+  let issues = await searchIssues(relatedJql(terms, 2), RELATED_ISSUES);
+  if (!issues.error && issues.length === 0) issues = await searchIssues(relatedJql(terms, 1), RELATED_ISSUES);
+  if (issues.error) console.log(`warm page=${pageId} run=${runId} jira skipped: ${issues.error}`);
+  const relatedIssues = issues.error
+    ? []
+    : issues.map((i) => ({ issueKey: i.key, title: i.summary, status: i.status, text: i.text.slice(0, RELATED_CHARS) }));
+
+  const sources = [
+    ...related.map(({ pageId: id, title }) => ({ pageId: id, title })),
+    ...relatedIssues.map(({ issueKey, title }) => ({ issueKey, title })),
+  ];
+  await recordWarm(run, { terms, sources });
+  console.log(`warm page=${pageId} run=${runId} terms=${terms.join(',')} related=${related.map((p) => p.pageId).join(',') || 'none'} issues=${relatedIssues.map((i) => i.issueKey).join(',') || 'none'}`);
 
   return {
     pageId,
     runId,
     searchedFor: terms.join(' '),
     related,
+    relatedIssues,
     questions: run.questions.map((q, i) => ({
       q: i + 1,
       question: q.text,
       coldAnswer: run.answers.find((a) => a.q === i + 1)?.answer ?? 'NO ANSWER',
     })),
-    next: related.length
-      ? 'Answer each question again from the page and these related pages together, compare with coldAnswer and call submit-cold-read-findings once.'
-      : 'No related pages were found. Call submit-cold-read-findings with verdict C for each NOT STATED answer and match for the others.',
+    next: sources.length
+      ? 'Answer each question again from the page, these related pages and Jira issues together, compare with coldAnswer and call submit-cold-read-findings once.'
+      : 'No related pages or Jira issues were found. Call submit-cold-read-findings with verdict C for each NOT STATED answer and match for the others.',
   };
 }
 
@@ -194,6 +209,7 @@ export async function getStatus(payload) {
         .filter((f) => f.verdict !== 'match')
         .sort((x, y) => x.verdict.localeCompare(y.verdict))
         .map((f) => ({ verdict: f.verdict, question: run.questions[f.q - 1]?.text, note: f.note })),
+      jiraIssue: run.jira ? { key: run.jira.key, url: run.jira.url } : null,
     },
     advice,
   };

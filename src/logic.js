@@ -148,19 +148,76 @@ export function searchTerms(title) {
   return [...new Set(words)].slice(0, 6);
 }
 
-// CQL for pages that share at least `minShared` (1 or 2) of the terms, without the page itself.
+// Text condition shared by CQL and JQL: at least `minShared` (1 or 2) of the terms.
 // Terms are letters and digits only (searchTerms), so they need no escaping.
-export function relatedCql(pageId, terms, minShared = 1) {
+function sharedTerms(terms, minShared) {
   const has = (t) => `text ~ "${t}"`;
-  let match = terms.map(has).join(' OR ');
-  if (minShared === 2 && terms.length >= 2) {
-    const pairs = [];
-    for (let i = 0; i < terms.length; i += 1) {
-      for (let j = i + 1; j < terms.length; j += 1) pairs.push(`(${has(terms[i])} AND ${has(terms[j])})`);
-    }
-    match = pairs.join(' OR ');
+  if (minShared !== 2 || terms.length < 2) return terms.map(has).join(' OR ');
+  const pairs = [];
+  for (let i = 0; i < terms.length; i += 1) {
+    for (let j = i + 1; j < terms.length; j += 1) pairs.push(`(${has(terms[i])} AND ${has(terms[j])})`);
   }
-  return `type = page AND id != ${pageId} AND (${match})`;
+  return pairs.join(' OR ');
+}
+
+// CQL for pages that share the terms, without the page itself.
+export function relatedCql(pageId, terms, minShared = 1) {
+  return `type = page AND id != ${pageId} AND (${sharedTerms(terms, minShared)})`;
+}
+
+// JQL for Jira issues that share the terms, newest first.
+export function relatedJql(terms, minShared = 1) {
+  return `(${sharedTerms(terms, minShared)}) ORDER BY updated DESC`;
+}
+
+// Atlassian Document Format (Jira descriptions and comments) to plain text.
+const ADF_BLOCKS = new Set(['paragraph', 'heading', 'blockquote', 'codeBlock', 'tableRow', 'rule', 'panel']);
+export function adfToText(doc) {
+  const out = [];
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'text') out.push(node.text || '');
+    else if (node.type === 'hardBreak') out.push('\n');
+    else if (node.type === 'mention' || node.type === 'emoji') out.push(node.attrs?.text || '');
+    else if (node.type === 'inlineCard') out.push(node.attrs?.url || '');
+    else (node.content || []).forEach(walk);
+    if (ADF_BLOCKS.has(node.type)) out.push('\n');
+  };
+  walk(doc);
+  return out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Summary and description (ADF) of the Jira issue for the page owner: the A findings of a checked run.
+// Returns { summary, description, count } or { error }.
+export function findingsIssue(run, { pageTitle, pageUrl }) {
+  const a = (run?.findings ?? []).filter((f) => f.verdict === 'A');
+  if (run?.status !== 'checked' || a.length === 0) return { error: 'The last cold read has no class A findings.' };
+  const text = (t, marks) => (marks ? { type: 'text', text: t, marks } : { type: 'text', text: t });
+  const para = (...content) => ({ type: 'paragraph', content });
+  const items = a.map((f) =>
+    ({
+      type: 'listItem',
+      content: [para(text(`Question ${f.q}: ${run.questions[f.q - 1]?.text ?? ''}`, [{ type: 'strong' }]), ...(f.note ? [text(` ${f.note}`)] : []))],
+    }),
+  );
+  const title = String(pageTitle || run.title || 'page');
+  return {
+    summary: `Cold Read: ${a.length} class A finding${a.length > 1 ? 's' : ''} on "${title}"`.slice(0, 250),
+    count: a.length,
+    description: {
+      type: 'doc',
+      version: 1,
+      content: [
+        para(
+          text('A cold read of '),
+          text(title, [{ type: 'link', attrs: { href: pageUrl } }]),
+          text(` (version ${run.pageVersion}) found that a newcomer who follows the page would act wrongly:`),
+        ),
+        { type: 'bulletList', content: items },
+        para(text(`Fix the page, then run Cold Read again from the page. Run ${run.runId}, checked ${String(run.checkedAt || '').slice(0, 10)}.`)),
+      ],
+    },
+  };
 }
 
 // Expected answers the reader gets once its answers are saved: only questions that have one.
@@ -211,7 +268,10 @@ export function statusAdvice(run, pageVersion) {
   }
   if (run.status !== 'checked') return 'The last cold read did not finish. Run a new one.';
   const a = (run.findings ?? []).filter((f) => f.verdict === 'A').length;
-  if (a > 0) return `Do not act on this page yet: ${a} class A finding(s), a newcomer would act wrongly. Ask the page owner to fix them.`;
+  if (a > 0) {
+    const fix = run.jira?.key ? `The fix is tracked in Jira issue ${run.jira.key}.` : 'Ask the page owner to fix them.';
+    return `Do not act on this page yet: ${a} class A finding(s), a newcomer would act wrongly. ${fix}`;
+  }
   return 'The last cold read of this version found no class A problems.';
 }
 

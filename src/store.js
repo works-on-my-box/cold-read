@@ -6,6 +6,7 @@
 //   questions:<pageId>        questions of a page and the owner's expected answers
 //   run:<pageId>:<runId>      one cold read: the questions given to the reader, its answers
 //   lastrun:<pageId>          runId of the latest cold read of the page
+//   jiraproject:<spaceId>     Jira project last used for Cold Read issues in the space
 import { kvs, WhereConditions } from '@forge/kvs';
 import { HANDOFF_QUESTIONS, newRunId } from './logic';
 
@@ -100,6 +101,22 @@ export async function recordWarm(run, { terms, sources }) {
   const warm = { ...run, warm: { at: new Date().toISOString(), terms, sources } };
   await kvs.set(runKey(run.pageId, run.runId), warm);
   return warm;
+}
+
+// The Jira issue made for the A findings of a run: one per run.
+export async function recordJira(run, jira) {
+  const withJira = { ...run, jira };
+  await kvs.set(runKey(run.pageId, run.runId), withJira);
+  return withJira;
+}
+
+// The Jira project last used for Cold Read issues in a space, so the panel offers it first.
+export async function getSpaceJiraProject(spaceId) {
+  return kvs.get(`jiraproject:${spaceId}`);
+}
+
+export async function setSpaceJiraProject(spaceId, projectId) {
+  await kvs.set(`jiraproject:${spaceId}`, projectId);
 }
 
 // IDs of pages that have saved questions or a cold read, across the installation (KVS has no

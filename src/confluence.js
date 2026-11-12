@@ -18,7 +18,9 @@ export async function fetchPage(pageId, { withBody = false } = {}) {
     title: page.title,
     version: page.version?.number,
     spaceId: String(page.spaceId),
+    ownerId: page.ownerId,
     webui: page._links?.webui,
+    url: page._links?.base && page._links?.webui ? page._links.base + page._links.webui : undefined,
     text: withBody ? storageToText(page.body?.storage?.value) : undefined,
   };
 }

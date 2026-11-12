@@ -10,6 +10,9 @@ import {
   parseFindings,
   searchTerms,
   relatedCql,
+  relatedJql,
+  adfToText,
+  findingsIssue,
   statusAdvice,
   bylineStatus,
   mergeSuggested,
@@ -173,6 +176,61 @@ test('statusAdvice says whether the page is safe to act on', () => {
   assert.match(statusAdvice({ status: 'answered', pageVersion: 3 }, 3), /did not finish/);
   assert.match(statusAdvice(checked([{ verdict: 'A' }, { verdict: 'C' }]), 3), /Do not act .* 1 class A/);
   assert.match(statusAdvice(checked([{ verdict: 'B' }, { verdict: 'match' }]), 3), /no class A/);
+  assert.match(statusAdvice(checked([{ verdict: 'A' }]), 3), /Ask the page owner to fix them/);
+  const tracked = { ...checked([{ verdict: 'A' }]), jira: { key: 'REN-7' } };
+  assert.match(statusAdvice(tracked, 3), /The fix is tracked in Jira issue REN-7\./);
+});
+
+test('relatedJql searches Jira issues by the same terms, newest first', () => {
+  assert.equal(relatedJql(['Acme', 'renewal']), '(text ~ "Acme" OR text ~ "renewal") ORDER BY updated DESC');
+  assert.equal(
+    relatedJql(['Acme', 'renewal', 'Priya'], 2),
+    '((text ~ "Acme" AND text ~ "renewal") OR (text ~ "Acme" AND text ~ "Priya") OR (text ~ "renewal" AND text ~ "Priya")) ORDER BY updated DESC',
+  );
+  assert.equal(relatedJql(['Acme'], 2), '(text ~ "Acme") ORDER BY updated DESC');
+});
+
+test('adfToText reads Jira descriptions and comments', () => {
+  const doc = {
+    type: 'doc',
+    version: 1,
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Quote sent to ' }, { type: 'mention', attrs: { text: '@Dana Ruiz' } }, { type: 'text', text: ' on Nov 7.' }] },
+      { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Total $48,000' }] }] }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'line one' }, { type: 'hardBreak' }, { type: 'text', text: 'line two' }] },
+    ],
+  };
+  assert.equal(adfToText(doc), 'Quote sent to @Dana Ruiz on Nov 7.\nTotal $48,000\nline one\nline two');
+  assert.equal(adfToText(undefined), '');
+  assert.equal(adfToText({ type: 'doc', content: [] }), '');
+});
+
+test('findingsIssue lists only the A findings of a checked run, with a link to the page', () => {
+  const run = {
+    runId: 'mwa912mst2v1',
+    status: 'checked',
+    title: 'Handoff: Acme renewal',
+    pageVersion: 4,
+    checkedAt: '2026-11-12T03:00:00.000Z',
+    questions: [{ id: 'h1', text: 'Where does the work stand?' }, { id: 'h2', text: 'What must not be done again?' }],
+    findings: [
+      { q: 1, verdict: 'C', note: 'Add the date.' },
+      { q: 2, verdict: 'A', note: 'The quote was already sent on Nov 7; the page says to send it.' },
+    ],
+  };
+  const issue = findingsIssue(run, { pageTitle: 'Handoff: Acme renewal', pageUrl: 'https://x.atlassian.net/wiki/x/AYA8' });
+  assert.equal(issue.summary, 'Cold Read: 1 class A finding on "Handoff: Acme renewal"');
+  assert.equal(issue.count, 1);
+  const [intro, list, outro] = issue.description.content;
+  assert.deepEqual(intro.content[1].marks, [{ type: 'link', attrs: { href: 'https://x.atlassian.net/wiki/x/AYA8' } }]);
+  assert.equal(list.content.length, 1);
+  assert.equal(list.content[0].content[0].content[0].text, 'Question 2: What must not be done again?');
+  assert.equal(list.content[0].content[0].content[1].text, ' The quote was already sent on Nov 7; the page says to send it.');
+  assert.match(outro.content[0].text, /Run mwa912mst2v1, checked 2026-11-12\./);
+  assert.ok(findingsIssue({ ...run, findings: [{ q: 1, verdict: 'C' }] }, {}).error, 'no A findings');
+  assert.ok(findingsIssue({ ...run, status: 'answered' }, {}).error, 'run not finished');
+  const two = findingsIssue({ ...run, findings: [{ q: 1, verdict: 'A' }, { q: 2, verdict: 'A' }] }, { pageTitle: 'P' });
+  assert.equal(two.summary, 'Cold Read: 2 class A findings on "P"');
 });
 
 test('bylineStatus shows the latest result under the page title', () => {
