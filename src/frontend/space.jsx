@@ -30,6 +30,7 @@ const App = () => {
       { key: 'state', content: 'Last cold read' },
       { key: 'when', content: 'When' },
       { key: 'questions', content: 'Questions' },
+      { key: 'jira', content: 'Fix in Jira' },
     ],
   };
   const rows = data.pages.map((p) => ({
@@ -42,6 +43,7 @@ const App = () => {
         key: 'questions',
         content: p.isDefault ? `${p.questions} (default set)` : `${p.questions}, ${p.withExpected} with expected answers`,
       },
+      { key: 'jira', content: p.jira ? (p.jira.url ? <Link href={p.jira.url} openNewTab>{p.jira.key}</Link> : p.jira.key) : '' },
     ],
   }));
 

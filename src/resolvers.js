@@ -111,6 +111,7 @@ resolver.define('getSpaceSummary', async ({ context }) => {
         isDefault,
         state: pageState(run, page.version),
         checkedAt: run?.checkedAt || run?.answeredAt || run?.startedAt || null,
+        jira: run?.jira ? { key: run.jira.key, url: run.jira.url } : null,
       };
     }),
   );
