@@ -13,7 +13,7 @@ Cold Read is a Forge app for Confluence. It tests what a newcomer would understa
 
 ## Setup
 
-1. A site admin turns on external tools: Atlassian Administration > Apps > Sites > your site > Connected apps > cold-read > Tools > Enable tools.
+1. A site admin turns on external tools: Atlassian Administration > Apps > Sites > your site > Connected apps > cold-read > View app details > Tools > Expose tools to MCP-compatible apps.
 2. Add the server to your client. In Claude Code:
    ```
    claude mcp add --transport http cold-read https://mcp.atlassian.com/forge/<appId>
