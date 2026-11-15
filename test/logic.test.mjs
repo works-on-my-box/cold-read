@@ -161,6 +161,57 @@ test('storageToText turns storage format into lines', () => {
   assert.equal(storageToText(undefined), '');
 });
 
+test('storageToText keeps code blocks, mentions, table cells and macro titles apart', () => {
+  // How Confluence stores a runbook: a code macro (CDATA), a mention, a table, a warning with a title.
+  const xhtml =
+    '<p>Owner: <ac:link><ri:user ri:account-id="5b10ac8d82e05b22cc7d4ef5" /></ac:link></p>' +
+    '<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter>' +
+    '<ac:plain-text-body><![CDATA[kubectl rollout undo deploy/api\ncat <<EOF > /tmp/a && echo "a&b"\nEOF]]></ac:plain-text-body></ac:structured-macro>' +
+    '<table><tbody><tr><th><p>Step</p></th><th><p>Owner</p></th></tr><tr><td><p>Roll back</p></td><td><p>Priya</p></td></tr></tbody></table>' +
+    '<ac:structured-macro ac:name="warning"><ac:parameter ac:name="title">Warn</ac:parameter>' +
+    '<ac:rich-text-body><p>Do not restart the queue.</p></ac:rich-text-body></ac:structured-macro>';
+  assert.equal(
+    storageToText(xhtml),
+    'Owner: @user\n' +
+      'kubectl rollout undo deploy/api\ncat <<EOF > /tmp/a && echo "a&b"\nEOF\n' +
+      'Step | Owner\nRoll back | Priya\n' +
+      'Warn\nDo not restart the queue.',
+  );
+});
+
+test('storageToText keeps inline macros, links, tasks and dates in their sentence', () => {
+  const jira = '<p>Blocked by <ac:structured-macro ac:name="jira" ac:schema-version="1"><ac:parameter ac:name="server">System Jira</ac:parameter>' +
+    '<ac:parameter ac:name="key">OPS-123</ac:parameter></ac:structured-macro> until Friday.</p>';
+  assert.equal(storageToText(jira), 'Blocked by OPS-123 until Friday.');
+  const jql = '<p>Open items:</p><ac:structured-macro ac:name="jira"><ac:parameter ac:name="server">System Jira</ac:parameter>' +
+    '<ac:parameter ac:name="jqlQuery">project = OPS AND status != Done</ac:parameter></ac:structured-macro><p>Next: deploy.</p>';
+  assert.equal(storageToText(jql), 'Open items:\nJira issues: project = OPS AND status != Done\nNext: deploy.');
+  const status = '<table><tbody><tr><td><p>Rotate keys</p></td><td><p><ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Green</ac:parameter>' +
+    '<ac:parameter ac:name="title">DONE</ac:parameter></ac:structured-macro></p></td><td><p>Priya</p></td></tr></tbody></table>';
+  assert.equal(storageToText(status), 'Rotate keys | DONE | Priya');
+  const wrapped = '<table><tbody><tr><td><div class="content-wrapper"><p>Rollback</p></div></td><td><div class="content-wrapper">' +
+    '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[./rollback.sh --to v41]]></ac:plain-text-body></ac:structured-macro></div></td>' +
+    '<td><p>Sam</p></td></tr></tbody></table>';
+  assert.equal(storageToText(wrapped), 'Rollback | ./rollback.sh --to v41 | Sam');
+  const emptyFirst = '<p>On-call matrix:</p><table><tbody><tr><th><p /></th><th><p>Mon</p></th></tr><tr><td><p>20.11</p></td><td><p>Sam</p></td></tr>' +
+    '<tr><td><p /></td><td><p>Priya</p></td></tr></tbody></table><p>Jump <ac:link ac:anchor="top" /> to the top.</p>';
+  assert.equal(storageToText(emptyFirst), 'On-call matrix:\n | Mon\n20.11 | Sam\n | Priya\nJump  to the top.');
+  assert.equal(storageToText('<p>Columns:</p><p> | name | role</p>'), 'Columns:\n | name | role');
+  const link = '<p>Follow <ac:link><ri:page ri:content-title="Rollback runbook" /><ac:plain-text-link-body><![CDATA[the rollback runbook]]></ac:plain-text-link-body></ac:link> first, ' +
+    'then <ac:link><ri:page ri:content-title="Release notes" /></ac:link>, <ac:link><ri:attachment ri:filename="plan.pdf" /></ac:link> and ' +
+    '<ac:link><ri:user ri:account-id="5b10ac8d82e05b22cc7d4ef5" /><ac:plain-text-link-body><![CDATA[Priya]]></ac:plain-text-link-body></ac:link>.</p>';
+  assert.equal(storageToText(link), 'Follow the rollback runbook first, then Release notes, plan.pdf and Priya.');
+  const selfClosing = '<ac:structured-macro ac:name="code"><ac:parameter ac:name="theme" /><ac:plain-text-body><![CDATA[make deploy]]></ac:plain-text-body></ac:structured-macro>' +
+    '<p>Owner: Sam. Do not run twice.</p><ac:structured-macro ac:name="info"><ac:parameter ac:name="icon">true</ac:parameter><ac:rich-text-body><p>Window: Fri.</p></ac:rich-text-body></ac:structured-macro>';
+  assert.equal(storageToText(selfClosing), 'make deploy\nOwner: Sam. Do not run twice.\nWindow: Fri.');
+  const tasks = '<ac:task-list><ac:task><ac:task-id>1</ac:task-id><ac:task-status>complete</ac:task-status><ac:task-body>Rotate the keys</ac:task-body></ac:task>' +
+    '<ac:task><ac:task-id>2</ac:task-id><ac:task-status>incomplete</ac:task-status><ac:task-body>Deploy to prod</ac:task-body></ac:task></ac:task-list>' +
+    '<p>Cut-over: <time datetime="2026-11-20" />, <ac:emoticon ac:name="tick" /> tested.</p><pre>make deploy</pre><p>Pipe it on: dmesg |</p><p>Literal &amp;lt;br&amp;gt; stays.</p>';
+  assert.equal(storageToText(tasks), '[x] Rotate the keys\n[ ] Deploy to prod\nCut-over: 2026-11-20, (tick) tested.\nmake deploy\nPipe it on: dmesg |\nLiteral &lt;br&gt; stays.');
+  const code = '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[    indented()\n\n\n\nafter_blank_lines()]]></ac:plain-text-body></ac:structured-macro>';
+  assert.equal(storageToText(code), '    indented()\n\n\n\nafter_blank_lines()');
+});
+
 test('run IDs are valid KVS key parts and sort by time', () => {
   const a = newRunId(Date.UTC(2026, 10, 10));
   const b = newRunId(Date.UTC(2026, 10, 11));

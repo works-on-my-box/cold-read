@@ -87,7 +87,7 @@ Through MCP, the page text, related sources and expected answers go to the clien
 ## Limitations
 
 - Pages only, read as plain text from the Confluence storage format: no images, no attachments, no content that macros pull in when the page is viewed.
-- The plain text loses code blocks and user mentions, and table cells and macro titles run together with the text next to them. Commands in a runbook's code blocks are not read.
+- User mentions without link text reach the Cold Reader as `@user`, without the name: the storage format holds only an account ID. Table cells are joined with ` | `, one row per line unless a cell holds several paragraphs, a list, a line break or a multi-line code block; a `|` inside a cell reads as a cell boundary; merged cells and nested tables lose their layout. Link addresses are dropped: a link keeps its text, or else the title of the page or the name of the file it points to.
 - The warm read searches only for words from the page title. It misses sources worded differently, and common title words can bring in unrelated ones.
 - Being "cold" rests on the Cold Reader's instructions. Expected answers and related sources reach it only after its answers are saved, but nothing stops the model from using general knowledge, and it gives its own verdicts.
 - No automatic re-run when a page changes: per the `rovo:action` documentation, agents started by Automation rules do not run `CREATE` actions, and those actions save the answers and findings. A changed page shows `page changed` until someone runs a new cold read.

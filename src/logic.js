@@ -16,20 +16,58 @@ export const HANDOFF_QUESTIONS = [
   { id: 'h5', text: 'Who is waiting on whom, and for what?', expected: '' },
 ];
 
-// Confluence storage format (XHTML) to plain text: block tags become line breaks, the rest is dropped.
+// Confluence storage format (XHTML) to plain text for the Cold Reader. Block tags become line breaks; table cells
+// are joined with " | ", a row per line; the text of code macros (CDATA) is kept as is; inline macros keep their
+// value in the sentence (a Jira key or query, a status); a link keeps its text, or else the page title or file name;
+// a user mention without link text becomes "@user" (storage holds only an account ID); tasks get [x] or [ ];
+// a date keeps its value; a macro title gets a line of its own; other macro parameters and tags are dropped.
 export function storageToText(xhtml) {
+  const code = [];
+  const attr = (tag, name) => new RegExp(`${name}="([^"]*)"`).exec(tag)?.[1];
   return String(xhtml || '')
-    .replace(/<\/(p|h[1-6]|li|tr|div)>/gi, '\n')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, body) => `\u0000${code.push(body) - 1}\u0000`)
+    .replace(/<\/ac:plain-text-body>/gi, '\n')
+    .replace(/<ac:parameter\b[^>]*\/>/gi, '')
+    .replace(/<ac:structured-macro\b[^>]*ac:name="(?:status|jira)"[^>]*(?<!\/)>((?:(?!<\/ac:structured-macro>)[\s\S])*)<\/ac:structured-macro>/gi,
+      (_, inner) => {
+        const param = (name) => new RegExp(`ac:name="${name}"[^>]*>([^<]*)<`).exec(inner)?.[1];
+        const jql = param('jqlQuery');
+        return param('key') ?? param('title') ?? (jql ? `Jira issues: ${jql}\n` : '');
+      })
+    .replace(/<ac:link\b[^>]*(?<!\/)>([\s\S]*?)<\/ac:link>/gi, (_, inner) => {
+      const body = /<ac:(?:plain-text-)?link-body>([\s\S]*?)<\/ac:(?:plain-text-)?link-body>/i.exec(inner);
+      if (body) return body[1];
+      if (/<ri:user\b/i.test(inner)) return '@user';
+      return attr(inner, 'ri:content-title') ?? attr(inner, 'ri:filename') ?? '';
+    })
+    .replace(/<ri:user\b[^>]*>/gi, '@user')
+    .replace(/<ac:task-(?:id|uuid)>[\s\S]*?<\/ac:task-(?:id|uuid)>/gi, '')
+    .replace(/<ac:task-status>\s*complete\s*<\/ac:task-status>/gi, '[x] ')
+    .replace(/<ac:task-status>\s*incomplete\s*<\/ac:task-status>/gi, '[ ] ')
+    .replace(/<\/ac:task>/gi, '\n')
+    .replace(/<time\b[^>]*>/gi, (tag) => attr(tag, 'datetime') ?? '')
+    .replace(/<ac:emoticon\b[^>]*>/gi, (tag) => attr(tag, 'ac:emoji-fallback') ?? `(${attr(tag, 'ac:name') ?? 'emoticon'})`)
+    .replace(/<ac:parameter\b[^>]*ac:name="title"[^>]*>([\s\S]*?)<\/ac:parameter>/gi, '$1\n')
+    .replace(/<ac:parameter\b[^>]*>[\s\S]*?<\/ac:parameter>/gi, '')
+    .replace(/(?:<\/(?:p|div|li|ul|ol|pre)>\s*)+(?=<\/t[dh]>)/gi, '')
+    .replace(/<\/t[dh]>\s*(?=<\/tr>)/gi, '')
+    .replace(/<tr\b[^>]*>/gi, '\u0002')
+    .replace(/<\/t[dh]>/gi, '\u0003')
+    .replace(/<\/(p|h[1-6]|li|tr|div|pre)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\n+(?=\u0003)/g, '')
+    .replace(/\u0002/g, '')
+    .replace(/\u0003/g, ' | ')
     .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .trim()
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => code[Number(i)] ?? '');
 }
 
 // Checks the question list the page owner saves from the panel.

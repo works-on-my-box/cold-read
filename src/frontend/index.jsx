@@ -277,7 +277,7 @@ function Questions({ state, draft, setDraft, formKey, dirty, setDirty, busy, onS
           <Text>This page uses the default handoff questions. Change them and save to make them this page’s own.</Text>
         </SectionMessage>
       ) : null}
-      <Text>Expected answers are optional. The reader never sees them: without them, Cold Read shows what the page leaves unsaid.</Text>
+      <Text>Expected answers are optional. The Cold Reader gets them only after its answers are saved. Without them, Cold Read shows what the page leaves unsaid.</Text>
       {draft.map((q, i) => (
         <Stack key={`${formKey}-${q.id}`} space="space.050">
           <Label labelFor={`q-${q.id}`}>Question {i + 1}</Label>
