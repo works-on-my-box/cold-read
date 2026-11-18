@@ -90,21 +90,22 @@ test('parseAnswers falls back to "Q1: answer" lines', () => {
   assert.deepEqual(missing, [2]);
 });
 
-test('runRefusal holds the order: answers once, then findings once, same person', () => {
-  const ids = { pageId: '1', runId: 'abc12345', accountId: 'u1' };
-  const run = (status, extra = {}) => ({ status, startedBy: 'u1', questions: [{ id: 'h1', text: 'Q', expected: 'E' }], ...extra });
+test('runRefusal holds the order: answers once, then findings once', () => {
+  const ids = { pageId: '1', runId: 'abc12345' };
+  const run = (status, extra = {}) => ({ status, questions: [{ id: 'h1', text: 'Q', expected: 'E' }], ...extra });
   assert.match(runRefusal(undefined, 'answers', ids), /no cold read/);
   assert.equal(runRefusal(run('reading'), 'answers', ids), null);
   assert.match(runRefusal(run('answered'), 'answers', ids), /already saved/);
-  assert.match(runRefusal({ ...run('reading'), startedBy: 'u2' }, 'answers', ids), /another person/);
+  // Runs saved by earlier versions may still hold startedBy: it is ignored.
+  assert.equal(runRefusal(run('reading', { startedBy: 'u2' }), 'answers', ids), null);
   assert.match(runRefusal(run('reading'), 'findings', ids), /answers .* first/);
   assert.equal(runRefusal(run('answered'), 'findings', ids), null);
   assert.match(runRefusal(run('checked'), 'findings', ids), /Findings .* already saved/);
 });
 
 test('runRefusal: without expected answers the findings need a warm read first', () => {
-  const ids = { pageId: '1', runId: 'abc12345', accountId: 'u1' };
-  const noExpected = { status: 'answered', startedBy: 'u1', questions: [{ id: 'h1', text: 'Q', expected: '' }] };
+  const ids = { pageId: '1', runId: 'abc12345' };
+  const noExpected = { status: 'answered', questions: [{ id: 'h1', text: 'Q', expected: '' }] };
   assert.equal(runRefusal(noExpected, 'warm', ids), null);
   assert.match(runRefusal(noExpected, 'findings', ids), /get-warm-read-packet/);
   assert.equal(runRefusal({ ...noExpected, warm: { sources: [] } }, 'findings', ids), null);

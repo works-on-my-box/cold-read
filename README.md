@@ -10,7 +10,7 @@ A handoff page reads fine to the person who wrote it. They know the price quote 
 
 **Questions.** Up to 10 questions per page. A page without its own questions gets five default handoff questions: where the work stands, the next step and who does it, what is decided, what is done and must not be repeated, who is waiting on whom. Page editors can change the questions and add expected answers, or use *Suggest questions*, which proposes up to 7 for the kind of page.
 
-**Cold read.** One cold read, or run, is done by the Cold Reader. It answers from the page text alone, each answer with the shortest supporting quote, or `NOT STATED`. It calls four tools in this order; the backend enforces the order, and only the person who started the run can complete it:
+**Cold read.** One cold read, or run, is done by the Cold Reader. It answers from the page text alone, each answer with the shortest supporting quote, or `NOT STATED`. It calls four tools in this order; the backend enforces the order and takes each step only from someone who can view the page:
 
 1. `get-cold-read-packet`: the page text and the questions, never the expected answers.
 2. `submit-cold-read-answers`: the answers, saved once. Only then does the Cold Reader get the expected answers.
@@ -39,7 +39,7 @@ In a test, the Cold Reader did not use a decoy page in the same space that held 
 
 Cold Read needs Confluence Cloud with Rovo turned on. With Jira on the same site, the warm read also searches issues, and A findings can go to Jira.
 
-So far Cold Read runs as a development install on our own site. The install link for other sites will be added here after the production deploy in December 2026. Until then, the way to try it on your site is your own copy: see Development.
+So far Cold Read runs as a development install on our own site. The install link for other sites will be added here. Until then, the way to try it on your site is your own copy: see Development.
 
 1. A site admin installs Cold Read in Confluence, and in Jira if the site has it.
 2. For MCP only: the site admin turns on "Expose tools to MCP-compatible apps" in Atlassian Administration > Apps > Sites > your site > Connected apps > cold-read > View app details > Tools.
@@ -80,7 +80,7 @@ To install it for all projects, copy it to `~/.claude/skills/` instead.
 
 Confluence and Jira calls run as the current user, so the Cold Reader sees only what that person can see. The app writes its own storage, so it checks rights itself: only people who can edit a page can change its questions. Everyone who can view the page can see its questions and expected answers in the panel; the Cold Reader gets the expected answers only after its answers are saved.
 
-Storage is the Forge Key-Value Store of the installation: questions and expected answers (with the Atlassian account ID of who saved them), the last Jira project used in each space, and runs (page ID, title and version, the questions and expected answers as they were at the run, the account ID of who ran it and when, answers with quotes from the page, findings with notes, the warm-read search words and the titles and IDs or keys of its sources, the Jira issue key and the account ID of who created it). The full page text is not stored. The app's logs hold page and run IDs, Jira issue keys, counts, the warm-read search words and Jira error messages, not page text. The manifest declares no external hosts, and the app calls no model of its own: the Cold Reader runs on the site's Rovo. The app does not delete old runs.
+Storage is the Forge Key-Value Store of the installation: questions and expected answers (and when they were saved), the last Jira project used in each space, and runs (page ID, title and version, the questions and expected answers as they were at the run, when it started, was answered and was checked, answers with quotes from the page, findings with notes, the warm-read search words and the titles and IDs or keys of its sources, and for the Jira issue its key, link, whether it was assigned, the number of A findings and when it was created). Cold Read stores no Atlassian account IDs and no profile data such as names or email addresses. To assign the Jira issue, it passes the page owner's account ID from Confluence to Jira and does not keep it. Titles, questions, expected answers, quotes and notes are free text, so they can contain whatever the page or the people who wrote them say, including names. The full page text is not stored. The app's logs hold page and run IDs, Jira issue keys, counts, the warm-read search words and Jira error messages, not page text. The manifest declares no external hosts, and the app calls no model of its own: the Cold Reader runs on the site's Rovo. The app does not delete old runs. More in [PRIVACY.md](PRIVACY.md).
 
 Through MCP, the page text, related sources and expected answers go to the client you connect and to its model provider. The Jira issue holds each A finding with its question and note, the page title and version, and a link to the page: choose a project whose members may see them.
 
@@ -102,7 +102,7 @@ You need a Confluence Cloud site where you are an admin, with Rovo turned on, an
 
 ```
 npm install
-npm test        # 23 tests of the pure logic in src/logic.js
+npm test        # 25 tests of the pure logic in src/logic.js
 forge register  # your own copy: a new app ID in manifest.yml
 forge deploy --non-interactive -e development
 forge install --non-interactive --site <site>.atlassian.net --product confluence --environment development

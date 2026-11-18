@@ -21,7 +21,7 @@ function pickPageId(payload) {
   return isPageId(fromContext) ? fromContext : null;
 }
 
-export async function getPacket(payload, context) {
+export async function getPacket(payload) {
   const pageId = pickPageId(payload);
   if (!pageId) return { error: 'Give the numeric ID of the Confluence page to read.' };
 
@@ -34,7 +34,6 @@ export async function getPacket(payload, context) {
     title: page.title,
     pageVersion: page.version,
     questions,
-    accountId: context?.principal?.accountId,
   });
   console.log(`packet page=${pageId} run=${run.runId} v=${page.version} chars=${page.text.length} questions=${questions.length}`);
 
@@ -58,12 +57,15 @@ function runIds(payload) {
   return { pageId, runId };
 }
 
-// KVS is written as the app, so the run itself decides whether this person may take this step now.
-async function runFor(step, payload, context) {
+// KVS is written as the app, so the step is taken only from someone who can view the page,
+// and the run itself decides whether this step may be taken now.
+async function runFor(step, payload) {
   const ids = runIds(payload);
   if (ids.error) return ids;
+  const page = await fetchPage(ids.pageId); // as the user: fails if they cannot see the page
+  if (page.error) return { error: page.error };
   const run = await getRun(ids.pageId, ids.runId);
-  const refusal = runRefusal(run, step, { ...ids, accountId: context?.principal?.accountId });
+  const refusal = runRefusal(run, step, ids);
   if (refusal) {
     console.log(`${step} refused page=${ids.pageId} run=${ids.runId}: ${refusal}`);
     return { error: refusal };
@@ -71,8 +73,8 @@ async function runFor(step, payload, context) {
   return { ...ids, run };
 }
 
-export async function submitAnswers(payload, context) {
-  const { pageId, runId, run, error } = await runFor('answers', payload, context);
+export async function submitAnswers(payload) {
+  const { pageId, runId, run, error } = await runFor('answers', payload);
   if (error) return { error };
 
   const parsed = parseAnswers(payload?.answers, run.questions.length);
@@ -113,8 +115,8 @@ export async function submitAnswers(payload, context) {
 
 // The warm read: the same questions, answered from the page and the pages related to it.
 // A difference between the cold and the warm answer is a finding nobody had to write down in advance.
-export async function getWarmPacket(payload, context) {
-  const { pageId, runId, run, error } = await runFor('warm', payload, context);
+export async function getWarmPacket(payload) {
+  const { pageId, runId, run, error } = await runFor('warm', payload);
   if (error) return { error };
 
   const terms = searchTerms(run.title);
@@ -163,8 +165,8 @@ export async function getWarmPacket(payload, context) {
   };
 }
 
-export async function submitFindings(payload, context) {
-  const { pageId, runId, run, error } = await runFor('findings', payload, context);
+export async function submitFindings(payload) {
+  const { pageId, runId, run, error } = await runFor('findings', payload);
   if (error) return { error };
 
   // With expected answers only those questions are compared; after a warm read, all of them.
@@ -245,7 +247,7 @@ export async function getPageForQuestions(payload) {
   };
 }
 
-export async function saveSuggestedQuestions(payload, context) {
+export async function saveSuggestedQuestions(payload) {
   const pageId = pickPageId(payload);
   if (!pageId) return { error: 'Give the numeric ID of the Confluence page.' };
   // KVS is written as the app: only people who can edit the page may change its questions.
@@ -254,7 +256,7 @@ export async function saveSuggestedQuestions(payload, context) {
   const { questions, isDefault } = await getQuestions(pageId);
   const merged = mergeSuggested(questions, isDefault, payload?.questions);
   if (merged.error) return { error: merged.error };
-  await saveQuestions(pageId, merged.questions, context?.principal?.accountId);
+  await saveQuestions(pageId, merged.questions);
   console.log(`suggested page=${pageId} added=${merged.added} total=${merged.questions.length}`);
   return {
     status: 'saved',

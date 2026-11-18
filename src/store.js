@@ -1,6 +1,7 @@
 // Cold Read data in Forge Key-Value Store (scope storage:app).
 // KVS is per installation and is read and written as the app, so the callers
 // check what the user may do before they call these functions.
+// No record holds an Atlassian account ID.
 //
 // Keys (KVS allows letters, digits and : . _ - # and spaces, up to 500 characters):
 //   questions:<pageId>        questions of a page and the owner's expected answers
@@ -23,11 +24,10 @@ export async function getQuestions(pageId) {
   return { questions: HANDOFF_QUESTIONS, isDefault: true };
 }
 
-export async function saveQuestions(pageId, questions, accountId) {
+export async function saveQuestions(pageId, questions) {
   await kvs.set(questionsKey(pageId), {
     questions,
     updatedAt: new Date().toISOString(),
-    updatedBy: accountId,
   });
 }
 
@@ -38,7 +38,7 @@ export async function resetQuestions(pageId) {
 
 // A run starts when the reader takes the packet. Only question texts are copied into it:
 // the expected answers stay with the page questions and never reach the reader.
-export async function startRun({ pageId, title, pageVersion, questions, accountId }) {
+export async function startRun({ pageId, title, pageVersion, questions }) {
   const run = {
     runId: newRunId(),
     pageId,
@@ -46,7 +46,6 @@ export async function startRun({ pageId, title, pageVersion, questions, accountI
     pageVersion,
     status: 'reading',
     startedAt: new Date().toISOString(),
-    startedBy: accountId,
     questions: questions.map(({ id, text }) => ({ id, text })),
   };
   // lastrun moves only when a run is finished (recordFindings).

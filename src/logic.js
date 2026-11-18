@@ -152,10 +152,9 @@ function parseAnswerLines(text) {
 
 // Why a run must refuse this step, or null if it takes it. The order is fixed:
 // answers (status "reading" -> "answered"), then findings ("answered" -> "checked"),
-// each once per run and only from the person who started the run.
-export function runRefusal(run, step, { pageId, runId, accountId }) {
+// each once per run. Runs hold no account ID, so the step does not depend on who calls it.
+export function runRefusal(run, step, { pageId, runId }) {
   if (!run) return `There is no cold read ${runId} of page ${pageId}. Call get-cold-read-packet first.`;
-  if (run.startedBy && run.startedBy !== accountId) return 'This cold read was started by another person.';
   const ready = step === 'answers' ? 'reading' : 'answered';
   if (run.status !== ready) {
     if (step === 'answers') {

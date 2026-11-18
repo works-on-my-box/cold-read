@@ -36,7 +36,7 @@ resolver.define('saveQuestions', async ({ payload, context }) => {
 
   const checked = validateQuestions(payload?.questions);
   if (checked.error) return { error: checked.error };
-  await saveQuestions(pageId, checked.questions, context?.accountId);
+  await saveQuestions(pageId, checked.questions);
   return { questions: checked.questions, isDefault: false };
 });
 
@@ -84,7 +84,6 @@ resolver.define('createJiraIssue', async ({ payload, context }) => {
     assigned: created.assigned,
     findings: fields.count,
     createdAt: new Date().toISOString(),
-    createdBy: context?.accountId,
   };
   await recordJira(run, jira);
   if (page.spaceId) await setSpaceJiraProject(page.spaceId, projectId);
