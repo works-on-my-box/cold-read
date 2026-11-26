@@ -28,7 +28,7 @@ The panel shows each step as it runs, then the answers and the findings. A run o
 3. `get-warm-read-packet`: only when no question has an expected answer. It returns the Jira issues and pages the page links to.
 4. `submit-cold-read-findings`: up to one verdict per compared question, saved once.
 
-The chat asks you to confirm steps 2 and 4. In a test, the Cold Reader did not use a decoy page in the same space that held the missing facts; plain Rovo with search found it.
+The chat asks you to confirm steps 2 and 4, two or three times in a run. In a test, the Cold Reader did not use a decoy page in the same space that held the missing facts; plain Rovo with search found it.
 
 **Findings.** With the owner's expected answers, each compared question gets one class. The compare reads the answer together with the reader's other answers of the same run, so a fact the reader gave under another question is not counted as missing from the page.
 
@@ -59,13 +59,13 @@ Cold Read needs Confluence Cloud; the Rovo chat and *Suggest questions* need Rov
 Install link (a site admin opens it, picks the site and accepts the permissions): https://developer.atlassian.com/console/install/e881a251-e585-4efe-8680-72dc90fcb38f?signature=AYABeJ8TmvayBXtf6zvl9smIcjIAAAADAAdhd3Mta21zAEthcm46YXdzOmttczp1cy13ZXN0LTI6NzA5NTg3ODM1MjQzOmtleS83MDVlZDY3MC1mNTdjLTQxYjUtOWY5Yi1lM2YyZGNjMTQ2ZTcAuAECAQB4CxqLTo9l4lqXuFjNim1xJM%2Bp%2F3TVP9xHS2BrU5DRRucBqMH62LJyWhdgtZcwtjEqdgAAAH4wfAYJKoZIhvcNAQcGoG8wbQIBADBoBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDE2P%2FWUnIhG8kNUBRgIBEIA7C6aIwSyLgnCJnJH5rPul%2BDMbYc%2Bgi%2Fwpt0yBG2h4JcRUgigjFWoJaM39%2FKIkpOZLCyoFZRzRZx42rFMAB2F3cy1rbXMAS2Fybjphd3M6a21zOmV1LXdlc3QtMTo3MDk1ODc4MzUyNDM6a2V5LzQ2MzBjZTZiLTAwYzMtNGRlMi04NzdiLTYyN2UyMDYwZTVjYwC4AQICAHi9bVMAkme4qVQX1fQHo6ePw3H40A7cGfz7yrmSfBWMXgEdOenNFtThv%2BzL0v%2B1zOLRAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMrpyyY51od5FKB%2FxnAgEQgDsNk3neAUi%2B%2BtDQKl%2BA7mc0s%2FrEzZf%2B%2FXmNry1PKcyC%2BneCPpw1q5wOBGoSXwiU6RtO5Gc2UTvqH5%2FdDQAHYXdzLWttcwBLYXJuOmF3czprbXM6dXMtZWFzdC0xOjcwOTU4NzgzNTI0MzprZXkvNmMxMjBiYTAtNGNkNS00OTg1LWI4MmUtNDBhMDQ5NTJjYzU3ALgBAgIAeDYASx0XCjkny4iLV6vz%2BKtEGSGT6kdt0QRpkn6D%2FlVEAa3CXc1lScz9X0JbNDAxfQEAAAB%2BMHwGCSqGSIb3DQEHBqBvMG0CAQAwaAYJKoZIhvcNAQcBMB4GCWCGSAFlAwQBLjARBAx4YcB6PeQOEalRKPwCARCAO3lmZ3GPQJnKTQB2WMKS0PkgajeTOI7nEQDKverM1XZuHWjSymzYJyb9trQp1oUk11sy4KuDOO0lyAyGAgAAAAAMAAAQAAAAAAAAAAAAAAAAAItHvpSuYao5JHfjmltmezz%2F%2F%2F%2F%2FAAAAAQAAAAAAAAAAAAAAAQAAADKOGdkneDaKdO91%2FbClukFmNHUp6NM30SYI7QZg64I9wWa63%2BkmSX22KspLMEl7A6GJ4Vsekjj7hWlkTOfvWXNy3Ok%3D&product=confluence&product=jira
 
 1. A site admin installs Cold Read in Confluence, and in Jira if the site has it.
-2. For MCP only: the site admin turns on "Expose tools to MCP-compatible apps" in Atlassian Administration > Apps > Sites > your site > Connected apps > cold-read > View app details > Tools.
+2. For MCP only: the site admin turns on "Expose tools to MCP-compatible apps" in Atlassian Administration > Apps > Sites > your site > Connected apps > Cold Read > View app details > Tools. Connected apps lists Cold Read twice, for Confluence and for Jira, with no product name, and each row has its own switch: the Confluence row is enough (its View app details address ends with `?product=confluence`).
 
 To try it on a page of your own, open a handoff page that links to the Jira issues or pages it depends on, or add expected answers under Questions. Click **Cold Read** under the page title, then **Run cold read**.
 
 ## Try the sample
 
-On **Space apps > Cold Read**, pick a Jira project and click **Load sample handoffs**. It puts into this space a parent page, "Cold Read sample: Payments on-call", with four handoffs of a made-up payments team under it, and into the project you picked two Jira issues with the label `cold-read-sample`, all created as you. It starts no runs. On **On-call handoff: Payments, week 47 (Mira to Jon)**, **Run cold read** takes about 30 seconds, and the item under the title shows `Cold Read · 1 critical`: the page says to restart a worker that a comment in a linked issue says not to restart during a billing run. **Remove sample** deletes the two issues; when Jira does not let you delete them, it adds a comment and moves them to a done status where the workflow has one. Cold Read has no permission to delete pages, so you delete the parent page with its children yourself. The full walkthrough, with the line that fixes the page, is in [docs/JUDGES.md](docs/JUDGES.md).
+On **Space apps > Cold Read**, pick a software project under "Jira project for the two sample issues" and click **Load sample handoffs**. It puts into this space a parent page, "Cold Read sample: Payments on-call", with four handoffs of a made-up payments team under it, and into the project you picked two Jira issues with the label `cold-read-sample`, all created as you. It starts no runs. On **On-call handoff: Payments, week 47 (Mira to Jon)**, **Run cold read** takes about 30 seconds, and the item under the title shows `Cold Read · 1 critical`: the page says to restart a worker that a comment in a linked issue says not to restart during a billing run. **Remove sample** deletes the two issues; when Jira does not let you delete them, it adds a comment and moves them to a done status where the workflow has one. Cold Read has no permission to delete pages, so you delete the parent page with its children yourself: in the delete window, check **Send all items in "Cold Read sample: Payments on-call" to the trash**, which is off by default. The full walkthrough, with the line that fixes the page, is in [docs/JUDGES.md](docs/JUDGES.md).
 
 ## For agents outside Atlassian: MCP and skill
 
@@ -76,7 +76,7 @@ claude mcp add --transport http cold-read https://mcp.atlassian.com/forge/e881a2
 claude mcp add --transport http atlassian https://mcp.atlassian.com/v2/mcp
 ```
 
-The first address is Cold Read as published from this repository; for your own copy, put the app ID from your `manifest.yml` after `/forge/`. In `claude`, run `/mcp`, choose `cold-read` and select Authenticate. On the Atlassian consent screen, pick the site and select Accept. Claude Code then lists five tools. Repeat for `atlassian`. A site admin must first turn on "Expose tools to MCP-compatible apps" (see Install). Development tool names end with `_development`; use the names your client lists.
+The first address is Cold Read as published from this repository; for your own copy, put the app ID from your `manifest.yml` after `/forge/`. In `claude`, run `/mcp`, choose `cold-read` and select Authenticate. On the Atlassian consent screen, pick the site and select Accept. Claude Code then lists five tools. Repeat for `atlassian`. A site admin must first turn on "Expose tools to MCP-compatible apps" for the Confluence row of Cold Read (see Install). Development tool names end with `_development`; use the names your client lists.
 
 Why two servers: Cold Read says whether a page is safe to act on and runs the check, but it has no plain read tool, since `get-cold-read-packet` starts a run. Through Atlassian's official MCP server, your agent reads the page it is about to act on and does the work itself, in Confluence or Jira.
 
@@ -100,7 +100,7 @@ To install it for all projects, copy it to `~/.claude/skills/` instead.
 | `read:jira-work` | the Jira issues a page links to; Jira projects and issue types |
 | `write:jira-work` | the Jira issue for A findings; the two sample issues and their comment, and deleting or closing them with Remove sample |
 
-The manifest also declares the `llm` module, which lets **Run cold read** call Forge LLMs. Per the Forge LLMs documentation, site admins are told at installation that an app uses Forge LLMs.
+The manifest also declares the `llm` module, which lets **Run cold read** call Forge LLMs. After installation, Atlassian Administration > Apps > Sites > your site > Connected apps > Cold Read (the Confluence row) > View app details lists Anthropic Claude under "AI MODELS".
 
 Confluence and Jira calls run as the current user, so the Cold Reader sees only what that person can see, and the sample is created as that person. The latest finished run of a page is shown to everyone who can view the page; a person who cannot open one of the linked Jira issues or pages it was compared with sees it without the notes, quotes and answers that came with the linked sources. The app writes its own storage, so it checks rights itself: only people who can edit a page can change its questions. Everyone who can view the page can see its questions and expected answers in the panel; the Cold Reader gets the expected answers only after its answers are saved.
 
@@ -124,7 +124,7 @@ Through MCP, the page text, the linked sources and the expected answers go to th
 - A Jira project that rejects the assignee or the label still gets the issue, without the rejected field. An issue without the label is not left out of later warm reads.
 - Where Cold Read is not added to Jira on the site, the one-click run and the warm read of linked pages work; the Jira issues a page links to are not read, and the sample and the Jira issue for A findings say that Cold Read is not connected to Jira.
 - Not tested live: the read-only question list for people who cannot edit the page, the "Rovo is off on this site" message, the blog-post message, an issue filed by someone who may not create issues, and an unassigned issue.
-- Tested on a development install only. External MCP access is a Preview platform feature. The MCP setup above is written for Claude Code; other MCP clients are untested.
+- The steps of [docs/JUDGES.md](docs/JUDGES.md) were tested on a production install from the install link, on a site without an earlier install, on 26 November 2026. External MCP access is a Preview platform feature. The MCP setup above is written for Claude Code; other MCP clients are untested.
 
 ## Development
 
