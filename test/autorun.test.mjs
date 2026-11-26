@@ -115,6 +115,8 @@ function world({ questions = EXPECTED, replies = [], related, page = PAGE, model
     pickModel: async () => (events.push('pickModel'), model ? { model, price: PRICES[model] } : null),
     guardConfig,
     checkFlag: async (site) => (events.push(`checkFlag ${site.cloudId}`), flag),
+    // As src/resolvers.js: the moment of the installation from the spend counters.
+    installedAt: async () => (events.push('installedAt'), (await spend.base()).installedAt),
     callModel: async (prompt, m, call) => {
       events.push(`callModel ${prompt.step} ${m}`);
       prompts.push(prompt);
@@ -675,6 +677,37 @@ test('each switch refuses the button before any model call or reserve, in the sa
   assert.equal((await world({ flag: { on: true, reason: 'unavailable' }, replies: [ANSWERS] }).engine.cold('3964929')).status, 'answered');
   // A flag with no rule for this environment (a production box left unticked in the console) leaves the button on.
   assert.equal((await world({ flag: { on: false, reason: 'default' }, replies: [ANSWERS] }).engine.cold('3964929')).status, 'answered');
+});
+
+test('new installations paused: one made at the date or later is refused before any reserve or model call, one made before runs', async () => {
+  const paused = { ...OPEN, NEW_INSTALLS_PAUSED_FROM: '2026-11-18T00:00:00Z' };
+  const installed = (at) => {
+    const kvs = fakeKvs();
+    if (at) kvs.data.set('spend:install', { at, from: 'install event' });
+    return kvs;
+  };
+  // Installed at the date, after it, and an installation without the install event (its first call is now): refused.
+  for (const kvs of [installed('2026-11-18T00:00:00.000Z'), installed('2026-11-18T08:00:00.000Z'), installed(null)]) {
+    const w = world({ guardConfig: paused, kvs, replies: [ANSWERS] });
+    assert.deepEqual(await w.engine.cold('3964929'), { error: UNAVAILABLE, refused: 'unavailable' });
+    assert.ok(w.logs.includes('guard deny reason=paused site=c0ffee00-site'));
+    assert.ok(!w.events.some((e) => /checkFlag|pickModel|reserveSpend|startRun|callModel/.test(e)), w.events.join(', '));
+    assert.equal(w.spentToday(), 0);
+  }
+  // Installed before the pause: the run goes on as before, the step after it too.
+  const before = world({ guardConfig: paused, kvs: installed('2026-11-17T23:59:59.000Z'), replies: [ANSWERS, FINDINGS] });
+  const cold = await before.engine.cold('3964929');
+  assert.equal(cold.status, 'answered');
+  assert.equal((await before.engine.compare('3964929', cold.runId)).status, 'checked');
+  // A run of a new installation that started before the pause was deployed stops at its next step.
+  const open = world({ kvs: installed('2026-11-18T08:00:00.000Z'), replies: [ANSWERS] });
+  const started = await open.engine.cold('3964929');
+  const after = world({ guardConfig: paused, kvs: open.kvs, replies: [FINDINGS] });
+  after.runs.set(started.runId, open.runs.get(started.runId));
+  assert.deepEqual(await after.engine.compare('3964929', started.runId), { error: UNAVAILABLE, refused: 'unavailable' });
+  assert.ok(!after.events.some((e) => e.startsWith('callModel')));
+  // No pause: the moment of the installation is not read.
+  assert.ok(!open.events.includes('installedAt'));
 });
 
 test('the second step: a switch turned off between the steps stops it; the spend limit does not', async () => {

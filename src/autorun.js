@@ -69,6 +69,7 @@ export function makeAutoRun(deps) {
     callModel,
     guardConfig,
     checkFlag = async () => null,
+    installedAt = async () => NaN,
     elementsLogged = () => false,
     log = console.log,
     now = Date.now,
@@ -103,9 +104,11 @@ export function makeAutoRun(deps) {
   }
 
   // The switches of the one-click run: the end date and src/guard-config.js first, then the feature flag.
-  // site: { cloudId, installContext, environmentId, environmentType } from the platform's resolver context.
+  // site: { cloudId, installContext, environmentId, environmentType } from the platform's resolver context. The moment
+  // of the installation is read only while new installations are paused.
   async function switchedOff(site) {
-    const reason = configRefusal(guardConfig, site.cloudId, now()) ?? flagRefusal(await checkFlag(site));
+    const at = guardConfig.NEW_INSTALLS_PAUSED_FROM == null ? undefined : await installedAt();
+    const reason = configRefusal(guardConfig, site.cloudId, now(), at) ?? flagRefusal(await checkFlag(site));
     if (reason) log(`guard deny reason=${reason} site=${site.cloudId}`);
     return reason;
   }

@@ -35,6 +35,7 @@ const autoRun = makeAutoRun({
   callModel,
   guardConfig,
   checkFlag: checkOneClickFlag,
+  installedAt: async () => (await spend.base()).installedAt,
   // A logging switch must not break a run: without the app context the elements are not logged.
   elementsLogged: () => {
     try {

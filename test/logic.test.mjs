@@ -1049,15 +1049,22 @@ test('requestCost: the text of a request by the same estimate with the tool-use 
   assert.equal(requestCost(request, PRICES['claude-haiku-4-5-20251001']), 1044 + 7500);
 });
 
-test('textTokens and the reserve: Chinese, Japanese and Korean characters at 1.5 tokens each, other text two characters a token', () => {
+// The rule of the estimate, written apart from src/logic.js: two ASCII characters a token, a token for each UTF-8 byte
+// of every other character.
+const byBytes = (s) => Math.ceil(s.replace(/[^\x00-\x7F]/g, '').length / 2) + Buffer.byteLength(s.replace(/[\x00-\x7F]/g, ''), 'utf8');
+
+test('textTokens and the reserve: two ASCII characters a token, a token for each UTF-8 byte of any other character', () => {
   assert.equal(textTokens('a'.repeat(1000)), 500);
-  assert.equal(textTokens('漢'.repeat(1000)), 1500, 'ideographs: three times English of the same length');
-  assert.equal(textTokens('かな'.repeat(250)), 750, 'kana');
-  assert.equal(textTokens('한국어'.repeat(100)), 450, 'hangul');
-  assert.equal(textTokens('ＡＢ'.repeat(50)), 150, 'full-width forms');
-  assert.equal(textTokens(`${'a'.repeat(1000)}${'漢'.repeat(1000)}`), 2000, 'mixed: the sum');
-  assert.equal(textTokens('Привет, мир'), 6, 'Cyrillic is counted as other text');
+  assert.equal(textTokens('漢'.repeat(1000)), 3000, 'ideographs: three bytes each');
+  assert.equal(textTokens('かな'.repeat(250)), 1500, 'kana');
+  assert.equal(textTokens('한국어'.repeat(100)), 900, 'hangul');
+  assert.equal(textTokens('ＡＢ'.repeat(50)), 300, 'full-width forms');
+  assert.equal(textTokens('Привет, мир'), 19, 'Cyrillic: two bytes a letter; the comma and the space two characters a token');
+  assert.equal(textTokens('สวัสดี'), 18, 'Thai: three bytes a character');
+  assert.equal(textTokens('👋🏽'), 8, 'emoji: four bytes each');
+  assert.equal(textTokens(`${'a'.repeat(1000)}${'漢'.repeat(1000)}`), 3500, 'mixed: the sum');
   assert.equal(textTokens(undefined), 0);
+  for (const s of ['Привет, мир', 'ꙮ'.repeat(7), 'a😀b', 'déjà vu — “quoted”', 'x'.repeat(3)]) assert.equal(textTokens(s), byBytes(s), s);
 
   const price = PRICES['claude-sonnet-5'];
   const questions = [
@@ -1074,14 +1081,42 @@ test('textTokens and the reserve: Chinese, Japanese and Korean characters at 1.5
   const warmRun = { title: 'Handoff: Initech renewal', pageText: english, questions: questions.map((q) => ({ ...q, expected: '' })), price };
   assert.deepEqual(runReserve(warmRun), { cold: 18120, next: 159626, warm: 39452 });
   assert.deepEqual(runReserve({ ...warmRun, linked: false }), { cold: 18120, next: 0 });
-  // The page text of the cold step: ideographs cost three times English of the same length; a mixed page the sum.
+  // The page text of the cold step: ideographs (three bytes) cost six times English of the same length; a mixed page the sum.
   const cold = (pageText) => runReserve({ title: 'T', pageText, questions, price }).cold;
   const base = cold('');
   const en = cold('a'.repeat(2000)) - base;
   const cjk = cold('漢'.repeat(2000)) - base;
   assert.equal(en, 1000 * price.in);
-  assert.equal(cjk, 3 * en);
+  assert.equal(cjk, 6 * en);
   assert.equal(cold(`${'a'.repeat(2000)}${'漢'.repeat(2000)}`) - base, en + cjk);
+});
+
+test('the reserve of a page of 40 000 rare characters is not below their UTF-8 bytes, in every step', () => {
+  const price = PRICES['claude-sonnet-5'];
+  const questions = HANDOFF_QUESTIONS.map((q) => ({ ...q, expected: '' }));
+  for (const rare of ['ꙮ', 'ก', '𝔄']) {
+    const pageText = clipPage(rare.repeat(PAGE_CHARS)).text; // 40 000 UTF-16 units: three bytes each, or four a pair
+    const bytes = Buffer.byteLength(pageText, 'utf8');
+    assert.ok(bytes >= 80000, `${rare}: ${bytes} bytes`);
+    const r = runReserve({ title: 'T', pageText, questions, price, linked: true });
+    // The cold call, the answers with the sources and the three conflict checks each have the page in their input.
+    assert.ok(r.cold >= callCost({ input_tokens: bytes, output_tokens: MAX_OUTPUT_TOKENS }, price), `${rare}: cold ${r.cold}`);
+    assert.ok(r.warm >= callCost({ input_tokens: bytes, output_tokens: MAX_OUTPUT_TOKENS }, price), `${rare}: warm ${r.warm}`);
+    assert.ok(r.next - r.warm >= 3 * bytes * price.in, `${rare}: conflict checks ${r.next - r.warm}`);
+    // So such a page does not start right after install: the reserve is above the fresh limit.
+    assert.ok(r.cold + r.next > FRESH_LIMIT);
+  }
+});
+
+test('the reserve of the four sample handoffs is what it was with the estimate of two characters a token', () => {
+  // Measured on 91c5c01 (26.11.2026), Sonnet 5, the five default questions: the sample text is English.
+  const price = PRICES[MODEL_PREFERENCE[0]];
+  const pages = samplePageBodies({ keys: { dup: 'REN-12', fix: 'REN-13' }, base: 'https://example.atlassian.net' });
+  const reserves = pages.map((p) => {
+    const r = runReserve({ title: p.title, pageText: clipPage(storageToText(p.body)).text, questions: HANDOFF_QUESTIONS, price, linked: hasLinks(pageLinks(p.body)) });
+    return r.cold + r.next;
+  });
+  assert.deepEqual(reserves, [210086, 206236, 205576, 17970]);
 });
 
 // ---- Switching the one-click run off. ----
@@ -1098,6 +1133,19 @@ test('the code switches: the end date 20.02.2027, the switch for all, the list o
   assert.equal(configRefusal({ ...CONFIG, BUTTON_ENABLED: false }, 'site-1', T0), 'disabled');
   assert.equal(configRefusal({ ...CONFIG, BLOCKED_CLOUD_IDS: ['site-1'] }, 'site-1', T0), 'blocked');
   assert.equal(configRefusal({ ...CONFIG, BLOCKED_CLOUD_IDS: ['site-1'] }, 'site-2', T0), null);
+  // The pause of new installations: none in the code; an installation made at the date or later is paused, one made
+  // before is not; with no pause the moment of the installation is not needed.
+  assert.equal(guard.NEW_INSTALLS_PAUSED_FROM, null, 'new installations are not paused in the code');
+  const paused = { ...CONFIG, NEW_INSTALLS_PAUSED_FROM: '2026-12-01T00:00:00Z' };
+  const at = Date.parse(paused.NEW_INSTALLS_PAUSED_FROM);
+  const later = Date.UTC(2026, 11, 5);
+  assert.equal(configRefusal(paused, 'site-1', later, at), 'paused');
+  assert.equal(configRefusal(paused, 'site-1', later, at + HOUR), 'paused');
+  assert.equal(configRefusal(paused, 'site-1', later, at - 1), null, 'installed before the pause');
+  assert.equal(configRefusal(paused, 'site-1', later, undefined), 'paused', 'the moment of the installation not known');
+  assert.equal(configRefusal({ ...paused, NEW_INSTALLS_PAUSED_FROM: 'soon' }, 'site-1', later, at - 1), 'paused', 'an unreadable date pauses all');
+  assert.equal(configRefusal(CONFIG, 'site-1', later, undefined), null);
+  assert.equal(configRefusal({ ...paused, BLOCKED_CLOUD_IDS: ['site-1'] }, 'site-1', later, at), 'blocked');
   assert.equal(siteOf('ari:cloud:confluence::site/01234567-89ab-4cde-8f01-23456789abcd'), '01234567-89ab-4cde-8f01-23456789abcd');
   assert.equal(siteOf(undefined), 'unknown');
 });

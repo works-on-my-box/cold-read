@@ -1114,23 +1114,38 @@ export function callCost(usage, price) {
 }
 export const usd = (micros) => (micros / MICROS).toFixed(6);
 
-// An upper estimate of the tokens of a text: two characters a token (English text takes about four), and one and a
-// half tokens for each Chinese, Japanese or Korean character (ideographs, kana, hangul and full-width forms).
+// An upper estimate of the tokens of a text: two ASCII characters a token (English text takes about four), and a
+// token for each UTF-8 byte of every other character (a token holds at least one byte, in any script).
 const CHARS_PER_TOKEN = 2;
-const DENSE_TOKENS_PER_CHAR = 1.5;
-const DENSE_CHARS = /[\u3000-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]/g;
 export function textTokens(text) {
   const s = String(text ?? '');
-  const dense = s.match(DENSE_CHARS)?.length ?? 0;
-  return Math.ceil((s.length - dense) / CHARS_PER_TOKEN + dense * DENSE_TOKENS_PER_CHAR);
+  const other = s.replace(/[\x00-\x7F]+/g, '');
+  return Math.ceil((s.length - other.length) / CHARS_PER_TOKEN) + new TextEncoder().encode(other).length;
 }
 
 // An upper estimate of the input tokens of a prompt: its text and the tool-use instructions the model service adds.
 // The saved cold answers in the second step are at most MAX_OUTPUT_TOKENS (a compare part holds each answer once: with
 // its own question or among the other answers of the run), and each related source of a warm read
-// (not known yet) is counted at its length limit with its title and tags, two characters a token.
+// (not known yet) is counted at its length limit with its title and tags, two characters a token: WARM_SOURCE_TOKENS.
 const TOOL_TOKENS = 500;
 const SOURCE_FRAME_CHARS = 400;
+export const WARM_SOURCE_TOKENS = (WARM_SOURCE_CHARS + SOURCE_FRAME_CHARS) / CHARS_PER_TOKEN; // 1700
+
+// A linked source of a one-click warm read cut to its part of the reserve: its block in the request (the title and
+// tags, after a blank line) within WARM_SOURCE_TOKENS by textTokens. Only the text is cut (a page or issue title has at
+// most 255 characters); English text of WARM_SOURCE_CHARS fits whole, text in other scripts is cut shorter.
+export function clipSource(source) {
+  const block = (text) => `\n\n${(source.issueKey ? linkedBlocks([], [{ ...source, text }]) : linkedBlocks([{ ...source, text }], []))[0]}`;
+  const room = WARM_SOURCE_TOKENS - textTokens(block(''));
+  let [fits, over] = [0, source.text.length + 1]; // the longest start of the text within the room
+  while (over - fits > 1) {
+    const mid = Math.floor((fits + over) / 2);
+    if (textTokens(source.text.slice(0, mid)) <= room) fits = mid;
+    else over = mid;
+  }
+  const end = fits < source.text.length && /[\uD800-\uDBFF]/.test(source.text[fits - 1]) ? fits - 1 : fits; // not half a character
+  return { ...source, text: source.text.slice(0, end) };
+}
 const promptTokens = (prompt, extraChars = 0) =>
   TOOL_TOKENS + textTokens(JSON.stringify(prompt.messages) + JSON.stringify(prompt.tool)) + Math.ceil(extraChars / CHARS_PER_TOKEN);
 
@@ -1228,16 +1243,19 @@ export function budgetText(refill) {
   return `This site has used its one-click budget for now. It refills over time: about ${refill.runs} run${refill.runs === 1 ? '' : 's'} available in ${when}.`;
 }
 
-// ---- Switching the one-click run off: for one site or for all, and after an end date. ----
+// ---- Switching the one-click run off: for one site or for all, for new installations, and after an end date. ----
 // The ID of the site from the installContext ARI the platform gives the resolver ("ari:cloud:confluence::site/<id>").
 export const siteOf = (installContext) => String(installContext ?? '').match(/:site\/([^/]+)$/)?.[1] ?? 'unknown';
 
-// From src/guard-config.js (changed by a deploy): the end date, the switch and the blocked sites. Returns
-// 'expired' | 'disabled' | 'blocked' or null.
-export function configRefusal(config, cloudId, now) {
+// From src/guard-config.js (changed by a deploy): the end date, the switch, the blocked sites and the pause of new
+// installations; installedAt: when this installation was made (ms, src/spend.js). Returns
+// 'expired' | 'disabled' | 'blocked' | 'paused' or null.
+export function configRefusal(config, cloudId, now, installedAt) {
   if (!(now < Date.parse(config.BUTTON_EXPIRES))) return 'expired';
   if (config.BUTTON_ENABLED !== true) return 'disabled';
   if (config.BLOCKED_CLOUD_IDS.includes(cloudId)) return 'blocked';
+  // Paused: made at NEW_INSTALLS_PAUSED_FROM or later, or when that is not known; an unreadable date pauses all.
+  if (config.NEW_INSTALLS_PAUSED_FROM != null && !(installedAt < Date.parse(config.NEW_INSTALLS_PAUSED_FROM))) return 'paused';
   return null;
 }
 

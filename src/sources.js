@@ -3,7 +3,7 @@
 // title (21.11.2026: it brought in pages about other clients and a stale handoff, and the warm read took them for the truth).
 // No Forge imports here: src/related.js passes in the Confluence and Jira calls (as the user), the tests pass fakes.
 // (The .js extension lets plain Node load this file in the tests.)
-import { pickSources, runForViewer } from './logic.js';
+import { pickSources, runForViewer, clipSource } from './logic.js';
 
 const RELATED_PAGES = 5;
 const RELATED_ISSUES = 5;
@@ -31,8 +31,10 @@ export function makeFindRelated({ fetchPage, fetchIssue, pageByTitle }) {
     }
     const chars = limits?.chars ?? RELATED_CHARS;
     const picked = limits ? pickSources(pages, issues, limits.sources) : { pages: pages.slice(0, RELATED_PAGES), issues: issues.slice(0, RELATED_ISSUES) };
-    const related = picked.pages.map((p) => ({ pageId: p.id, title: p.title, text: p.text.slice(0, chars) }));
-    const relatedIssues = picked.issues.map((i) => ({ issueKey: i.key, title: i.summary, status: i.status, text: i.text.slice(0, chars) }));
+    // The one-click run: each source also within its part of the reserve (clipSource), text in other scripts shorter.
+    const fit = (source) => (limits ? clipSource(source) : source);
+    const related = picked.pages.map((p) => fit({ pageId: p.id, title: p.title, text: p.text.slice(0, chars) }));
+    const relatedIssues = picked.issues.map((i) => fit({ issueKey: i.key, title: i.summary, status: i.status, text: i.text.slice(0, chars) }));
     const sources = [
       ...related.map(({ pageId: id, title }) => ({ pageId: id, title })),
       ...relatedIssues.map(({ issueKey, title }) => ({ issueKey, title })),

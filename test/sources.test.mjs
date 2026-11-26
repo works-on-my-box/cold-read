@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { makeFindRelated, makeForViewer } from '../src/sources.js';
-import { pageLinks, WARM_SOURCES, WARM_SOURCE_CHARS, HIDDEN_NOTE } from '../src/logic.js';
+import { pageLinks, warmAnswersPrompt, WARM_SOURCES, WARM_SOURCE_CHARS, HIDDEN_NOTE } from '../src/logic.js';
 
 // A fake site: pages by id, issues by key, and what each title lookup finds. Every call is written down.
 function site({ pages = {}, issues = {}, titles = {} } = {}) {
@@ -83,6 +83,42 @@ test('the agent (no limits): up to five linked pages and five issues of 4000 cha
   const button = await findRelated({ pageId: '1', links }, { sources: WARM_SOURCES, chars: WARM_SOURCE_CHARS });
   assert.deepEqual(button.sources.map((s) => s.pageId ?? s.issueKey), ['100', '101', '102', 'ABC-1', 'ABC-2', 'ABC-3']);
   assert.equal(button.relatedIssues[0].text.length, WARM_SOURCE_CHARS);
+});
+
+// The rule of the estimate, written apart from src/logic.js: two ASCII characters a token, a token for each UTF-8 byte
+// of every other character.
+const byBytes = (s) => Math.ceil(s.replace(/[^\x00-\x7F]/g, '').length / 2) + Buffer.byteLength(s.replace(/[\x00-\x7F]/g, ''), 'utf8');
+
+test('the button: a linked source in another script is cut to its part of the reserve, 1700 tokens with its title and tags; English as before', async () => {
+  const ru = 'Передача дел: Дана ждёт ответа по счёту, повторно его не отправлять. '.repeat(60);
+  const pages = { 100: { title: 'Передача дел: продление договора', text: ru } };
+  const issues = {
+    'ABC-1': { key: 'ABC-1', summary: 'Отправить счёт Дане', status: 'Готово', labels: [], text: ru },
+    'ABC-2': { key: 'ABC-2', summary: 'Emoji', status: 'Done', labels: [], text: '😀'.repeat(2000) },
+    'ABC-3': { key: 'ABC-3', summary: 'English', status: 'Done', labels: [], text: 'y'.repeat(5000) },
+  };
+  const links = { pageIds: Object.keys(pages), pageTitles: [], issueKeys: Object.keys(issues) };
+  const { findRelated } = site({ pages, issues });
+  const found = await findRelated({ pageId: '1', links }, { sources: WARM_SOURCES, chars: WARM_SOURCE_CHARS });
+  const content = warmAnswersPrompt({ title: 'T', pageText: 'p', questions: [{ id: 'q1', text: 'Q?' }], related: found.related, relatedIssues: found.relatedIssues }).messages[1].content;
+  const blocks = [
+    ...found.related.map((p) => `<linked_page id="${p.pageId}" title="${p.title}">\n${p.text}\n</linked_page>`),
+    ...found.relatedIssues.map((i) => `<jira_issue key="${i.issueKey}" title="${i.title}" status="${i.status}">\n${i.text}\n</jira_issue>`),
+  ];
+  assert.equal(blocks.length, 4);
+  for (const [n, block] of blocks.entries()) {
+    assert.ok(content.includes(`\n\n${block}`), 'the block as the request has it');
+    const tokens = byBytes(`\n\n${block}`);
+    assert.ok(tokens <= 1700, `${block.slice(0, 40)}: ${tokens} tokens`);
+    // Cyrillic and emoji are cut by tokens: no shorter than their part; English by characters.
+    if (n < 3) assert.ok(tokens > 1690, `${block.slice(0, 40)}: cut no shorter than its part (${tokens})`);
+  }
+  assert.ok(ru.startsWith(found.related[0].text) && found.related[0].text.length < WARM_SOURCE_CHARS, 'Cyrillic: a start of the text, shorter');
+  assert.equal(found.relatedIssues[1].text.length % 2, 0, 'an emoji is not cut in half');
+  assert.equal(found.relatedIssues[2].text, 'y'.repeat(WARM_SOURCE_CHARS), 'English: 3000 characters, as before');
+  // The agent (no limits) gets the sources cut by characters only, as before.
+  const agent = await findRelated({ pageId: '1', links });
+  assert.equal(agent.related[0].text, ru.slice(0, 4000));
 });
 
 // What a run shows to the person who asks: each linked source is checked at once, an issue by canSeeIssue, a page
