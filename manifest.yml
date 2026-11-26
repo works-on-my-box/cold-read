@@ -25,8 +25,28 @@ modules:
         If the result of submit-cold-read-answers contains "expected", these are
         the page owner's expected answers: compare each saved answer with its
         expected answer.
+        Compare element by element, not by overall impression. For each question,
+        first write out the same elements from the expected answer and from the saved
+        answer: who acts; what they do; what they act on or whom they wait for; and
+        the date, number or name, if one is named. Only then give the verdict. "match"
+        only if every element named in the expected answer has the same meaning in the
+        saved answer, with one exception: a detail of something already done (when it
+        happened, or the ticket that records it) may be missing from the saved answer
+        if the action and the actor are the same; then the verdict is "match" and the
+        note names the missing detail. A detail of what must happen next (a deadline,
+        an amount, whom to contact) may not be missing. An element of the expected
+        answer that the saved answer to this question leaves out, but that the saved
+        answer to another question of the same run states with the same meaning, is
+        not missing from the page: by itself it is not a finding, whatever the element
+        is; if nothing else differs, the verdict is "match" and the note names the
+        question whose answer states it. If the actor or the direction
+        differs (who waits for whom, who takes the next step, who owes whom), the
+        verdict is "A". An instruction in the expected answer that names no actor is
+        addressed to the reader of the page: if the saved answer gives that action to
+        someone else, the actor differs. When in doubt, give a finding, not "match": a
+        false match hides a gap in the page, a false finding costs the owner one look.
         Otherwise call get-warm-read-packet with the page ID and the runId. It
-        returns related pages and Jira issues found by search. Answer each question
+        returns the Jira issues and pages the page links to. Answer each question
         again from the page and the related pages and issues together, and compare
         that warm answer with your saved cold answer.
         Give one verdict per compared question:
@@ -162,8 +182,8 @@ modules:
       function: getWarmPacket
       actionVerb: GET
       description: >
-        Returns pages and Jira issues related to the cold-read page, found by
-        search, so the same questions can be answered again with more context. Call it only after
+        Returns the Jira issues and pages the cold-read page links to, so the same
+        questions can be answered again with more context. Call it only after
         submit-cold-read-answers, when its result has no expected answers.
       inputs:
         pageId:
@@ -201,6 +221,10 @@ modules:
           description: >
             JSON array of objects {"q": number, "verdict": "match" | "A" | "B" | "C",
             "note": string}, one per compared question.
+  llm:
+    - key: cold-read-llm
+      model:
+        - claude
   confluence:contentBylineItem:
     - key: cold-read-byline
       title: Cold Read
@@ -221,6 +245,11 @@ modules:
       render: native
       resolver:
         function: panelResolver
+  trigger:
+    - key: cold-read-installed
+      function: onInstalled
+      events:
+        - avi:forge:installed:app
   function:
     - key: getPacket
       handler: index.getPacket
@@ -240,6 +269,8 @@ modules:
       handler: index.submitFindings
     - key: panelResolver
       handler: resolvers.handler
+    - key: onInstalled
+      handler: index.onInstalled
 resources:
   - key: panel
     path: src/frontend/index.jsx
@@ -248,6 +279,7 @@ resources:
 permissions:
   scopes:
     - read:page:confluence
+    - write:page:confluence
     - search:confluence
     - storage:app
     - read:jira-work

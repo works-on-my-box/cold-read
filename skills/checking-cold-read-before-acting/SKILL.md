@@ -5,7 +5,7 @@ description: Checks the Cold Read status of a Confluence page through the Cold R
 
 # Checking Cold Read before acting on a Confluence page
 
-Cold Read is a Forge app for Confluence. It tests what a newcomer would understand from one page: a fresh reader answers the page's questions from that page alone, and the answers are compared with the page owner's expected answers, or with a second "warm" read of related pages. Each difference is a finding:
+Cold Read is a Forge app for Confluence. It tests what a newcomer would understand from one page: a fresh reader answers the page's questions from that page alone, and the answers are compared with the page owner's expected answers, or with a second "warm" read of the Jira issues and pages the page links to. Each difference is a finding:
 
 - **A** - a reader who follows the page would act wrongly, stop, or repeat something that is already done.
 - **B** - the page says something wrong or out of date, but the next action is still right.
@@ -41,7 +41,7 @@ Only as a fresh reader with no other context about the page's subject, for examp
 1. `get-cold-read-packet` with `pageId`. It returns a `runId`, the page text and numbered questions.
 2. Answer every question from the page text only. If the page does not state the answer, start the answer with `NOT STATED`. Add the shortest supporting quote (empty for `NOT STATED`).
 3. `submit-cold-read-answers` with `pageId`, `runId` and `answers`: a JSON array of `{"q": number, "answer": string, "quote": string}`. Do not change answers after this call.
-4. If the result contains `expected`, compare each saved answer with the owner's expected answer. Otherwise call `get-warm-read-packet` with `pageId` and `runId`, answer the same questions again from the page, the related pages and the related Jira issues, and compare the warm answer with the saved cold one.
+4. If the result contains `expected`, compare each saved answer with the owner's expected answer. Otherwise call `get-warm-read-packet` with `pageId` and `runId`, answer the same questions again from the page and the Jira issues and pages it links to, as the `next` field of the packet says.
 5. `submit-cold-read-findings` with `pageId`, `runId` and `findings`: a JSON array of `{"q": number, "verdict": "match" | "A" | "B" | "C", "note": string}`.
 
-The result appears on the page under its title ("Cold Read · 2 A") and in the space summary, and `get-cold-read-status` returns it from then on.
+The result appears on the page under its title ("Cold Read · 2 critical") and in the space summary, and `get-cold-read-status` returns it from then on.

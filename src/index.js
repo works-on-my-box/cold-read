@@ -1,16 +1,12 @@
 // The Rovo actions of the Cold Reader agent. Order the backend holds for one run:
 // 1. get-cold-read-packet: page text and questions, never the expected answers;
 // 2. submit-cold-read-answers: answers are saved once, and only then the expected answers come back;
-// 3. get-warm-read-packet (only without expected answers): related pages and Jira issues found by search;
+// 3. get-warm-read-packet (only without expected answers): the Jira issues and pages the page itself links to;
 // 4. submit-cold-read-findings: the reader's own verdicts, once.
-import { fetchPage, searchPages, canEditPage } from './confluence';
-import { searchIssues } from './jira';
-import { getQuestions, saveQuestions, startRun, getRun, getLastRun, recordAnswers, recordFindings, recordWarm } from './store';
-import { NOT_STATED, parseAnswers, parseFindings, runRefusal, expectedOf, searchTerms, relatedCql, relatedJql, statusAdvice, bylineStatus, mergeSuggested, isPageId, isRunId } from './logic';
-
-const RELATED_PAGES = 5;
-const RELATED_ISSUES = 5;
-const RELATED_CHARS = 4000;
+import { fetchPage, canEditPage } from './confluence';
+import { findRelated, forViewer } from './related';
+import { getQuestions, saveQuestions, startRun, getRun, getLastRun, recordAnswers, recordFindings, recordWarm, spend } from './store';
+import { NOT_STATED, WARM_ANSWERS_RULES, CONFLICT_RULES, QUOTE_CHARS, parseAnswers, parseFindings, runRefusal, agentRefusal, expectedOf, statusAdvice, bylineStatus, mergeSuggested, isPageId, isRunId } from './logic';
 
 // The page the agent named, or, if that is not a page ID, the page the chat was opened on.
 // Rovo passes action inputs as top-level payload fields and the product context in payload.context.
@@ -62,15 +58,22 @@ function runIds(payload) {
 async function runFor(step, payload) {
   const ids = runIds(payload);
   if (ids.error) return ids;
-  const page = await fetchPage(ids.pageId); // as the user: fails if they cannot see the page
+  // as the user: fails if they cannot see the page; the warm read needs its links too
+  const page = await fetchPage(ids.pageId, { withBody: step === 'warm' });
   if (page.error) return { error: page.error };
   const run = await getRun(ids.pageId, ids.runId);
+  // A run of the panel's Run cold read is not the agent's: its steps are taken only by the panel.
+  const own = agentRefusal(run, ids.runId);
+  if (own) {
+    console.log(`${step} refused page=${ids.pageId} run=${ids.runId}: ${own}`);
+    return { error: own };
+  }
   const refusal = runRefusal(run, step, ids);
   if (refusal) {
     console.log(`${step} refused page=${ids.pageId} run=${ids.runId}: ${refusal}`);
     return { error: refusal };
   }
-  return { ...ids, run };
+  return { ...ids, run, page };
 }
 
 export async function submitAnswers(payload) {
@@ -113,45 +116,34 @@ export async function submitAnswers(payload) {
   };
 }
 
-// The warm read: the same questions, answered from the page and the pages related to it.
-// A difference between the cold and the warm answer is a finding nobody had to write down in advance.
+// The warm read: the same questions, answered again from the page and the Jira issues and pages it links to (the same
+// sources as the one-click run; there is no search). A difference between the cold answer and that answer is a finding
+// nobody had to write down in advance. A page that links to nothing readable has nothing to compare with: the run
+// ends here without findings, as a one-click run does.
 export async function getWarmPacket(payload) {
-  const { pageId, runId, run, error } = await runFor('warm', payload);
+  const { pageId, runId, run, page, error } = await runFor('warm', payload);
   if (error) return { error };
 
-  const terms = searchTerms(run.title);
-  if (terms.length === 0) return { error: 'The page title has no words to search by.' };
-  // Pages and Jira issues sharing two words of the title. Only if neither has any, those sharing one word:
-  // one shared word alone drags in unrelated pages. Without Jira on the site (or without access) the warm
-  // read uses pages only.
-  let found = await searchPages(relatedCql(pageId, terms, 2), RELATED_PAGES);
-  let issues = await searchIssues(relatedJql(terms, 2), RELATED_ISSUES);
-  if (!found.error && found.length === 0 && (issues.error || issues.length === 0)) {
-    found = await searchPages(relatedCql(pageId, terms, 1), RELATED_PAGES);
-    if (!issues.error) issues = await searchIssues(relatedJql(terms, 1), RELATED_ISSUES);
+  const links = page.links ?? { pageIds: [], pageTitles: [], issueKeys: [] };
+  const linkCount = links.pageIds.length + links.pageTitles.length + links.issueKeys.length;
+  const { related, relatedIssues, sources } = await findRelated({ pageId, spaceId: page.spaceId, links });
+  console.log(`warm page=${pageId} run=${runId} links=${linkCount} related=${related.map((p) => p.pageId).join(',') || 'none'} issues=${relatedIssues.map((i) => i.issueKey).join(',') || 'none'}`);
+  if (sources.length === 0) {
+    await recordFindings({ ...run, warm: { at: new Date().toISOString(), links: linkCount, sources: [] } }, []);
+    return {
+      pageId,
+      runId,
+      status: 'finished',
+      next: linkCount
+        ? 'The Jira issues and pages this page links to cannot be read, so there is nothing to compare the answers with: the cold read is finished. Show the user the answers, those NOT STATED first. Do not call submit-cold-read-findings.'
+        : 'This page links to no Jira issues or pages, so there is nothing to compare the answers with: the cold read is finished. Show the user the answers, those NOT STATED first, and say that linking the Jira issues and pages the page depends on lets Cold Read compare the answers with them. Do not call submit-cold-read-findings.',
+    };
   }
-  if (found.error) return { error: found.error };
-  const pages = await Promise.all(found.map((p) => fetchPage(p.id, { withBody: true })));
-  const related = pages
-    .filter((p) => !p.error)
-    .map((p) => ({ pageId: p.id, title: p.title, text: p.text.slice(0, RELATED_CHARS) }));
-
-  if (issues.error) console.log(`warm page=${pageId} run=${runId} jira skipped: ${issues.error}`);
-  const relatedIssues = issues.error
-    ? []
-    : issues.map((i) => ({ issueKey: i.key, title: i.summary, status: i.status, text: i.text.slice(0, RELATED_CHARS) }));
-
-  const sources = [
-    ...related.map(({ pageId: id, title }) => ({ pageId: id, title })),
-    ...relatedIssues.map(({ issueKey, title }) => ({ issueKey, title })),
-  ];
-  await recordWarm(run, { terms, sources });
-  console.log(`warm page=${pageId} run=${runId} terms=${terms.join(',')} related=${related.map((p) => p.pageId).join(',') || 'none'} issues=${relatedIssues.map((i) => i.issueKey).join(',') || 'none'}`);
+  await recordWarm(run, { links: linkCount, sources });
 
   return {
     pageId,
     runId,
-    searchedFor: terms.join(' '),
     related,
     relatedIssues,
     questions: run.questions.map((q, i) => ({
@@ -159,9 +151,12 @@ export async function getWarmPacket(payload) {
       question: q.text,
       coldAnswer: run.answers.find((a) => a.q === i + 1)?.answer ?? 'NO ANSWER',
     })),
-    next: sources.length
-      ? 'Answer each question again from the page, these related pages and Jira issues together, compare with coldAnswer and call submit-cold-read-findings once.'
-      : 'No related pages or Jira issues were found. Call submit-cold-read-findings with verdict C for each NOT STATED answer and match for the others.',
+    next:
+      `Answer each question again from the page and these linked Jira issues and pages together. ${WARM_ANSWERS_RULES} ` +
+      `After each source you name, quote it word for word, at most ${QUOTE_CHARS} characters. Then, for each question, ` +
+      'check whether coldAnswer (the answer from the page alone) and your answer (the answer with the linked issues and ' +
+      `pages) conflict. ${CONFLICT_RULES} Give the verdict "A" for a conflict, with the sentence as the note, and "match" ` +
+      'for every other question. Call submit-cold-read-findings once.',
   };
 }
 
@@ -200,6 +195,7 @@ export async function getStatus(payload) {
   const run = await getLastRun(pageId);
   const advice = statusAdvice(run, page.version);
   if (!run) return { pageId, title: page.title, pageVersion: page.version, lastRun: null, advice };
+  const shown = await forViewer(run); // the findings as this person may see them
   return {
     pageId,
     title: page.title,
@@ -209,8 +205,8 @@ export async function getStatus(payload) {
       status: run.status,
       readVersion: run.pageVersion,
       finishedAt: run.checkedAt || run.answeredAt || run.startedAt,
-      comparedWith: run.questions.some((q) => q.expected) ? 'expected answers' : run.warm ? 'warm read' : null,
-      findings: (run.findings ?? [])
+      comparedWith: run.questions.some((q) => q.expected) ? 'expected answers' : run.warm?.sources?.length ? 'warm read' : null,
+      findings: (shown.findings ?? [])
         .filter((f) => f.verdict !== 'match')
         .sort((x, y) => x.verdict.localeCompare(y.verdict))
         .map((f) => ({ verdict: f.verdict, question: run.questions[f.q - 1]?.text, note: f.note })),
@@ -265,4 +261,11 @@ export async function saveSuggestedQuestions(payload) {
     total: merged.questions.length,
     next: 'Tell the user the questions are saved and that they can add expected answers in Cold Read under the page title, then run a cold read.',
   };
+}
+
+// The install event (avi:forge:installed:app; an upgrade sends another event, so a new version does not move it):
+// the moment the spend limit of the one-click run starts from (src/spend.js).
+export async function onInstalled() {
+  await spend.recordInstall();
+  console.log('spend install recorded');
 }
