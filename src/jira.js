@@ -21,13 +21,13 @@ async function errorOf(res, what) {
   return `Jira returned ${res.status || 'no answer'} for ${what}${details ? `: ${details}` : '.'}`;
 }
 
-// Projects where the person can create issues: [{ id, key, name }] or { error } ({ error, notConnected } when Cold Read
-// cannot reach Jira on this site).
+// Projects where the person can create issues, by name: [{ id, key, name, type }] (type: software, service_desk,
+// business...) or { error } ({ error, notConnected } when Cold Read cannot reach Jira on this site).
 export async function creatableProjects() {
   const res = await call(route`/rest/api/3/project/search?action=create&orderBy=name&maxResults=50`);
   if (!res.ok) return projectListRefusal(res.status, await errorOf(res, 'the project list'));
   const { values = [] } = await res.json();
-  return values.map((p) => ({ id: String(p.id), key: p.key, name: p.name }));
+  return values.map((p) => ({ id: String(p.id), key: p.key, name: p.name, type: p.projectTypeKey }));
 }
 
 // The issue type for a fix: "Task" if the project has it, else its first type that is not a sub-task.

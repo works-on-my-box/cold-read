@@ -13,7 +13,7 @@ If **Space apps → Cold Read** says "Cold Read is not connected to Jira on this
 
 ## Try the sample (about 7 minutes)
 
-1. Open any Confluence space, then **Space apps → Cold Read**. Under "Jira project for the two sample issues", pick a software project (the first project in alphabetical order is preselected and can be a service desk) and click **Load sample handoffs**. In about 8 seconds the space gets a page "Cold Read sample: Payments on-call" with four handoffs of a made-up payments team, and the project gets two issues with the label `cold-read-sample`.
+1. Open any Confluence space, then **Space apps → Cold Read**. Under "Jira project for the two sample issues", the first software project by name is preselected (or the project Cold Read last used in this space); keep it or pick another software project and click **Load sample handoffs**. In about 8 seconds the space gets a page "Cold Read sample: Payments on-call" with four handoffs of a made-up payments team, and the project gets two issues with the label `cold-read-sample`.
 2. Open **On-call handoff: Payments, week 47 (Mira to Jon)**. Click **Cold Read** under the page title, then **Run cold read**. It takes about 30 seconds: a fresh reader answers five questions from the page alone, then again with the two Jira issues the page links, then the two are compared.
 3. What you should see (the same in 5 of 5 of our runs):
    - under the title: **Cold Read · 1 critical**;

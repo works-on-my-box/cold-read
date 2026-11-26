@@ -11,6 +11,8 @@ import ForgeReconciler, {
   Inline,
   Label,
   Link,
+  List,
+  ListItem,
   Lozenge,
   SectionMessage,
   Select,
@@ -212,16 +214,33 @@ function JiraBox({ run, onCreated }) {
 const runsLeftText = (n) =>
   n > 0 ? `About ${n} one-click run${n === 1 ? '' : 's'} left on this site for now.` : 'One-click runs on this site are nearly used up for now: the next one may be refused. It refills over time.';
 
-// Where a one-click run stands, or why it stopped, with the way on.
-function RunNotice({ state, progress, problem, rovoEnabled, onRun, onContinue, onChat, runDisabled }) {
-  if (progress) {
-    return (
+// A one-click run under way: the step with the seconds since the run started, counted here in the browser, and under
+// it the questions the reader is answering (the saved ones, as on the Questions tab).
+function RunProgress({ progress, since, questions }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = Math.max(0, Math.floor((now - (since ?? now)) / 1000));
+  return (
+    <Stack space="space.100">
       <Inline space="space.100" alignBlock="center">
         <Spinner size="small" label="Cold read running" />
-        <Text>{STEP_TEXT[progress]}</Text>
+        <Text>{STEP_TEXT[progress]} · {seconds} s</Text>
       </Inline>
-    );
-  }
+      <List type="ordered">
+        {questions.map((q) => (
+          <ListItem key={q.id}>{q.text}</ListItem>
+        ))}
+      </List>
+    </Stack>
+  );
+}
+
+// Where a one-click run stands, or why it stopped, with the way on.
+function RunNotice({ state, progress, since, problem, rovoEnabled, onRun, onContinue, onChat, runDisabled }) {
+  if (progress) return <RunProgress progress={progress} since={since} questions={state.questions} />;
   // The spend limit, or the one-click run switched off for this site: the words come from the backend.
   if (problem?.kind === 'refused') {
     return (
@@ -263,7 +282,7 @@ function RunNotice({ state, progress, problem, rovoEnabled, onRun, onContinue, o
   return null;
 }
 
-function LastRun({ state, progress, problem, rovoEnabled, onRun, onContinue, onChat, onRefresh, onJira, runDisabled }) {
+function LastRun({ state, progress, since, problem, rovoEnabled, onRun, onContinue, onChat, onRefresh, onJira, runDisabled }) {
   const run = state.lastRun;
   const pageChanged = run && state.pageVersion && run.pageVersion && state.pageVersion > run.pageVersion;
   const buttons = (
@@ -274,7 +293,7 @@ function LastRun({ state, progress, problem, rovoEnabled, onRun, onContinue, onC
     </ButtonGroup>
   );
   const notice = (
-    <RunNotice state={state} progress={progress} problem={problem} rovoEnabled={rovoEnabled} onRun={onRun} onContinue={onContinue} onChat={onChat} runDisabled={runDisabled} />
+    <RunNotice state={state} progress={progress} since={since} problem={problem} rovoEnabled={rovoEnabled} onRun={onRun} onContinue={onContinue} onChat={onChat} runDisabled={runDisabled} />
   );
   if (!run) {
     return (
@@ -436,6 +455,7 @@ const App = () => {
   const [message, setMessage] = useState(null);
   const [rovoEnabled, setRovoEnabled] = useState(null); // null = not known yet
   const [progress, setProgress] = useState(null); // a one-click run under way: 'cold', then what step 2 compares with
+  const [since, setSince] = useState(null); // when it started (ms)
   const [problem, setProblem] = useState(null); // why the last one-click run stopped: { kind: 'refused' | 'failed', text }
 
   const load = async () => {
@@ -508,6 +528,7 @@ const App = () => {
   const runSteps = async (from) => {
     setMessage(null);
     setProblem(null);
+    setSince(Date.now());
     try {
       let runId = from?.runId;
       let compareWith = from?.compareWith;
@@ -594,6 +615,7 @@ const App = () => {
           <LastRun
             state={state}
             progress={progress}
+            since={since}
             problem={problem}
             rovoEnabled={rovoEnabled}
             onRun={onRun}

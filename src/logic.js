@@ -268,6 +268,11 @@ export function adfToText(doc) {
 export const JIRA_NOT_CONNECTED = 'Cold Read is not connected to Jira on this site. Ask a site admin to add it to Jira to use this.';
 export const projectListRefusal = (status, error) => ([0, 401, 403].includes(status) ? { error: JIRA_NOT_CONNECTED, notConnected: true } : { error });
 
+// The Jira project the panel and the sample offer first: the one last used in this space, else the first software
+// project (a service desk is a poor home for these issues), else the first by name.
+export const defaultProjectId = (projects, lastId) =>
+  (projects.find((p) => p.id === lastId) ?? projects.find((p) => p.type === 'software') ?? projects[0])?.id ?? null;
+
 // Summary and description (ADF) of the Jira issue for the page owner: the A findings of a checked run.
 // Returns { summary, description, count } or { error }.
 export function findingsIssue(run, { pageTitle, pageUrl }) {
@@ -363,7 +368,7 @@ export function statusAdvice(run, pageVersion) {
   const a = (run.findings ?? []).filter((f) => f.verdict === 'A').length;
   if (a > 0) {
     const fix = run.jira?.key ? `The fix is tracked in Jira issue ${run.jira.key}.` : 'Ask the page owner to fix them.';
-    return `Do not act on this page yet: ${a} class A finding(s), a newcomer would act wrongly. ${fix}`;
+    return `Check before acting: ${a} class A finding(s) — a newcomer following this page would act wrongly. ${fix}`;
   }
   return 'The last cold read of this version found no class A problems.';
 }

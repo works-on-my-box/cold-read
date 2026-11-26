@@ -9,7 +9,7 @@ import { getSampleRecord, setSampleRecord, deleteSampleRecord } from './store';
 import { sampleView, withSamplePages } from './sample';
 import { makeSample } from './sample-run';
 import { startRun, getRun, recordAnswers, recordWarm, recordFindings, recordFailure, markPending, getPendingRun, claimStep, spend } from './store';
-import { validateQuestions, pageState, findingsIssue, STATE_ORDER, inSpaceSummary, isRunId, interruptedRun, logsElements, siteOf, RUNS_LEFT_SHOWN_BELOW } from './logic';
+import { validateQuestions, pageState, findingsIssue, STATE_ORDER, inSpaceSummary, isRunId, interruptedRun, logsElements, siteOf, RUNS_LEFT_SHOWN_BELOW, defaultProjectId } from './logic';
 import { findRelated, forViewer } from './related';
 import { pickModel, callModel } from './llm';
 import { makeAutoRun } from './autorun';
@@ -131,13 +131,13 @@ resolver.define('resetQuestions', async ({ context }) => {
   return getQuestions(pageId);
 });
 
-// Jira projects for the issue about A findings, the one last used in this space first.
+// Jira projects for the issue about A findings and for the sample, with the one to offer first (defaultProjectId).
 resolver.define('getJiraProjects', async ({ context }) => {
   const projects = await creatableProjects();
   if (projects.error) return projects;
   const spaceId = String(context?.extension?.space?.id ?? '');
   const last = spaceId ? await getSpaceJiraProject(spaceId) : undefined;
-  return { projects, defaultProjectId: projects.some((p) => p.id === last) ? last : projects[0]?.id ?? null };
+  return { projects, defaultProjectId: defaultProjectId(projects, last) };
 });
 
 // One Jira issue per run for its A findings, assigned to the page owner. Anyone who can see the page

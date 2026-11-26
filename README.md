@@ -44,7 +44,7 @@ The chat asks you to confirm steps 2 and 4, two or three times in a run. In a te
 - **Panel:** click **Cold Read** under the page title to see the answers with quotes, the expected answers or the answers with the linked sources, and the findings. The title of the **Cold Read** item shows the latest finished run: `Cold Read · 1 critical` (A findings), `· 2 to fix` (B and C), `· 2 not on the page` (a run with nothing to compare with), `· page changed` or `· clear`.
 - **Space page** (Space apps > Cold Read): pages with saved questions or finished runs, worst first, with a *Fix in Jira* column, and the sample (see Try the sample).
 - **Jira:** from the panel, the A findings of a run go to the page owner as one issue: a Task where the project has one, with the label `cold-read` and a link to the page in the description, created as the person who clicks.
-- **Status:** `get-cold-read-status` gives one line of advice on the latest finished run, such as "Do not act on this page yet: 2 class A finding(s), a newcomer would act wrongly. The fix is tracked in Jira issue `<KEY>`."
+- **Status:** `get-cold-read-status` gives one line of advice on the latest finished run, such as "Check before acting: 2 class A finding(s) — a newcomer following this page would act wrongly. The fix is tracked in Jira issue `<KEY>`."
 
 ## Model
 

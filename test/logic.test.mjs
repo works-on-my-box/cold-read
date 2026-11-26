@@ -17,6 +17,7 @@ import {
   adfToText,
   JIRA_NOT_CONNECTED,
   projectListRefusal,
+  defaultProjectId,
   findingsIssue,
   statusAdvice,
   bylineStatus,
@@ -294,7 +295,7 @@ test('statusAdvice says whether the page is safe to act on', () => {
   assert.match(statusAdvice(undefined, 3), /No cold read yet/);
   assert.match(statusAdvice(checked([], 2), 3), /changed after the last cold read \(version 2, now 3\)/);
   assert.match(statusAdvice({ status: 'answered', pageVersion: 3 }, 3), /did not finish/);
-  assert.match(statusAdvice(checked([{ verdict: 'A' }, { verdict: 'C' }]), 3), /Do not act .* 1 class A/);
+  assert.match(statusAdvice(checked([{ verdict: 'A' }, { verdict: 'C' }]), 3), /Check before acting: 1 class A/);
   assert.match(statusAdvice(checked([{ verdict: 'B' }, { verdict: 'match' }]), 3), /no class A/);
   assert.match(statusAdvice(checked([{ verdict: 'A' }]), 3), /Ask the page owner to fix them/);
   const tracked = { ...checked([{ verdict: 'A' }]), jira: { key: 'REN-7' } };
@@ -352,6 +353,36 @@ test('Jira that Cold Read cannot reach: the sample and the Jira issue of the pan
   const panel = read('../src/frontend/index.jsx');
   assert.match(panel, takesSentence);
   assert.match(panel, /if \(projects === null\) return <Spinner label="Loading Jira projects" \/>;\s*if \(notConnected\) return <Text>\{notConnected\}<\/Text>;\s*if \(loadError\)/);
+});
+
+test('while a one-click run goes, the panel shows the step with the seconds since the run started and the questions under it', () => {
+  const panel = readFileSync(new URL('../src/frontend/index.jsx', import.meta.url), 'utf8');
+  // the questions are the saved ones, numbered as on the Questions tab
+  assert.match(panel, /if \(progress\) return <RunProgress progress=\{progress\} since=\{since\} questions=\{state\.questions\} \/>;/);
+  assert.match(panel, /<Text>\{STEP_TEXT\[progress\]\} · \{seconds\} s<\/Text>/);
+  assert.match(panel, /<List type="ordered">\s*\{questions\.map\(\(q\) => \(\s*<ListItem key=\{q\.id\}>\{q\.text\}<\/ListItem>/);
+  // counted in the browser once a second from the start of the run (a Continue counts from its click); the timer stops with the run
+  assert.match(panel, /const timer = setInterval\(\(\) => setNow\(Date\.now\(\)\), 1000\);\s*return \(\) => clearInterval\(timer\);/);
+  assert.match(panel, /const runSteps = async \(from\) => \{\s*setMessage\(null\);\s*setProblem\(null\);\s*setSince\(Date\.now\(\)\);/);
+});
+
+test('the Jira project offered first: the last used in the space, else the first software project, else the first by name', () => {
+  // a demo site: the first project by name is a service desk
+  const projects = [
+    { id: '10', key: 'CLSD', name: 'Commercial Legal Service Desk', type: 'service_desk' },
+    { id: '11', key: 'MKT', name: 'Marketing', type: 'business' },
+    { id: '12', key: 'PLAT', name: 'Platform Development', type: 'software' },
+    { id: '13', key: 'WEB', name: 'Website', type: 'software' },
+  ];
+  assert.equal(defaultProjectId(projects, undefined), '12');
+  assert.equal(defaultProjectId(projects, '13'), '13');
+  assert.equal(defaultProjectId(projects, '10'), '10'); // the person chose the service desk here before
+  assert.equal(defaultProjectId(projects, '99'), '12'); // a project the person can no longer create issues in
+  assert.equal(defaultProjectId(projects.filter((p) => p.type !== 'software'), undefined), '10');
+  assert.equal(defaultProjectId([], '12'), null);
+  const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
+  assert.match(read('../src/jira.js'), /orderBy=name[\s\S]*values\.map\(\(p\) => \(\{ id: String\(p\.id\), key: p\.key, name: p\.name, type: p\.projectTypeKey \}\)\)/);
+  assert.match(read('../src/resolvers.js'), /const last = spaceId \? await getSpaceJiraProject\(spaceId\) : undefined;\s*return \{ projects, defaultProjectId: defaultProjectId\(projects, last\) \};/);
 });
 
 test('findingsIssue lists only the A findings of a checked run, with a link to the page', () => {
@@ -1614,6 +1645,7 @@ test('a conflict is an A finding everywhere: the title under the page, the state
   const run = { ...CONFLICT_RUN, runId: 'mwrun00003', status: 'checked', pageVersion: 1, checkedAt: '2026-11-21T02:00:00Z', findings: [finding, { q: 2, verdict: 'match', note: '' }, { q: 3, verdict: 'match', note: '' }] };
   assert.equal(bylineStatus(run, 1).title, 'Cold Read · 1 critical');
   assert.equal(pageState(run, 1).key, 'A');
-  assert.match(statusAdvice(run, 1), /Do not act on this page yet: 1 class A finding/);
+  assert.equal(statusAdvice(run, 1), 'Check before acting: 1 class A finding(s) — a newcomer following this page would act wrongly. Ask the page owner to fix them.');
+  assert.equal(statusAdvice({ ...run, jira: { key: 'REN-20' } }, 1), 'Check before acting: 1 class A finding(s) — a newcomer following this page would act wrongly. The fix is tracked in Jira issue REN-20.');
   assert.equal(findingsIssue(run, { pageTitle: run.title, pageUrl: 'https://x/wiki/p' }).count, 1);
 });
