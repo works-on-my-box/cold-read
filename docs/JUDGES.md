@@ -23,7 +23,7 @@ If **Space apps → Cold Read** says "Cold Read is not connected to Jira on this
 
    > If billing queue lag goes over 15 min tonight, don't restart billing-worker while the billing run is in progress. Lag during the run drains on its own, so wait for the run to show COMPLETED (KEY). If there's no progress for 20 min, page Payments Core. Outside a run, restart billing-worker (see the Restart billing-worker runbook).
 
-   Click **Update**, then **Cold Read**, then **Run again**. You should see **Cold Read · clear** and "findings: 0 A, 0 B, 0 C, 5 match" (3 of 3 of our runs).
+   Click **Update**, then **Cold Read**, then **Run again**. You should see **Cold Read · clear** and "findings: 0 A, 0 B, 0 C, 5 match" (3 of 5 of our runs on this version). In the other two the run still showed one A finding on **What is the single next step, and who does it?**, though the page and the issue no longer disagree; if you get it, click **Run again**.
 5. Open **On-call handoff: Payments Core, week 47**, the handoff of the Payments Core team. Under "Next" it says "If Platform on-call pages us about a stuck billing run tonight, ask them to restart billing-worker." Click **Cold Read** under the page title, then **Run cold read** (about 20 seconds). What you should see (the same in 5 of 5 of our runs):
    - in the panel: "5 of 5 answered from the page · 0 not on the page", one A finding and no B or C, and "Compared with:" the two sample issues;
    - the A finding is on **What is the single next step, and who does it?** The page says "ask them to restart billing-worker". The comment in "Duplicate pending charges from Tuesday's billing run" says "don't restart billing-worker while a billing run is in progress". In 3 of our 5 runs the same finding also covers **What has already been done that must not be done again?**
@@ -33,16 +33,23 @@ If **Space apps → Cold Read** says "Cold Read is not connected to Jira on this
 
 ## Try your own page (about 3 minutes)
 
-Create a page with these four lines:
+1. Create a Jira issue, a Task in any software project, with the summary "Search reindex: shards 4 and 5" and this description:
 
-```
-I'm away from tomorrow. Sam takes over the release of the billing export.
-Where it is: the release branch is cut and tested.
-Next: Sam ships it on Monday.
-Waiting on: nobody.
-```
+   > Do not start shard 4 before the disk upgrade on search-2 is done (planned for Thursday). Shard 3 ran out of disk on Monday.
 
-Add a link to any Jira issue of yours (type its key on the page), publish, and click **Cold Read**, then **Run cold read**. The panel answers the questions from the page alone, then compares the page with that issue and shows where they disagree, if they do.
+2. Create a Confluence page "Handoff: search reindex" with these five lines (KEY is the key of that issue):
+
+   ```
+   I'm away from tomorrow. Tomas takes over the search reindex.
+   Where it is: 3 of 5 shards are reindexed; shards 4 and 5 are left.
+   Next: Tomas starts shard 4 tonight after 22:00.
+   Decided: we keep the old index until all five shards are done.
+   Jira: KEY
+   ```
+
+3. Publish the page, click **Cold Read** under its title, then **Run cold read** (about 20 seconds). What you should see (the same in 5 of 5 of our runs): "4 of 5 answered from the page · 1 not on the page · findings: 1 A, 0 B, 0 C, 4 match". The A finding is on **What is the single next step, and who does it?** The page says "Tomas starts shard 4 tonight after 22:00". The issue says "Do not start shard 4 before the disk upgrade on search-2 is done". **Who is waiting on whom, and for what?** is not on the page.
+
+Then try a handoff of your own: type the keys of the Jira issues it rests on, or link the pages, publish and run a cold read. The panel answers the questions from the page alone, then compares the page with what it links and shows where they disagree, if they do.
 
 ## If the one-click runs run out
 
